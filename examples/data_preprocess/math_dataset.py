@@ -32,17 +32,27 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--local_dir', default='~/data/math')
     parser.add_argument('--hdfs_dir', default=None)
+    parser.add_argument('--idk', action='store_true', help='Whether to use idk template')
 
     args = parser.parse_args()
 
-    data_source = 'lighteval/MATH'
+    if args.idk:
+        data_source = 'lighteval/MATH_idk'
+    else:
+        data_source = 'lighteval/MATH'
 
-    dataset = datasets.load_dataset(data_source, trust_remote_code=True)
+    dataset = datasets.load_dataset('di-zhang-fdu/MATH12000', trust_remote_code=True)
 
     train_dataset = dataset['train']
-    test_dataset = dataset['test']
 
-    instruction_following = "Let's think step by step and output the final answer within \\boxed{}."
+    test_dataset = datasets.load_dataset('di-zhang-fdu/MATH500', trust_remote_code=True)
+    test_dataset = test_dataset['test']
+
+    if not args.idk:
+        instruction_following = "Let's think step by step and output the final answer within \\boxed{}."
+    else:
+        instruction_following = "Let's think step by step and output the final answer within \\boxed{}. If you're unsure of how to solve the problem, just say \\boxed{I don't know}."
+
 
     # add a row to each data item that represents a unique id
     def make_map_fn(split):
@@ -79,7 +89,7 @@ if __name__ == '__main__':
 
     local_dir = args.local_dir
     hdfs_dir = args.hdfs_dir
-
+    breakpoint()
     train_dataset.to_parquet(os.path.join(local_dir, 'train.parquet'))
     test_dataset.to_parquet(os.path.join(local_dir, 'test.parquet'))
 

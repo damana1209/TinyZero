@@ -12,20 +12,63 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # Adapted from https://github.com/EleutherAI/lm-evaluation-harness/blob/main/lm_eval/tasks/hendrycks_math/utils.py
+import random
 
+class MathStatus:
+    BAD_FORMAT = 0
+    WRONG = 1
+    RIGHT = 2
+    IDK = 3
 
 def compute_score(solution_str, ground_truth) -> float:
     retval = 0.
+    to_print = random.randint(1, 64) == 1
+    if to_print:
+        print(f"Solution string: {solution_str}")
     try:
         string_in_last_boxed = last_boxed_only_string(solution_str)
         if string_in_last_boxed is not None:
             answer = remove_boxed(string_in_last_boxed)
             if is_equiv(answer, ground_truth):
                 retval = 1.
+                return retval, MathStatus.RIGHT
+            else:
+                retval = 0.
+                return retval, MathStatus.WRONG
     except Exception as e:
         print(e)
 
-    return retval
+    return retval, MathStatus.BAD_FORMAT
+
+running_acc = 0.5
+ema_coeff = 0.999
+def compute_score_idk_rs(solution_str, ground_truth, idk_reward=0.3) -> float:
+    global running_acc, ema_coeff
+    retval = 0.
+    to_print = random.randint(1, 64) == 1
+    if to_print:
+        print(f"Solution string: {solution_str}")
+    try:
+        string_in_last_boxed = last_boxed_only_string(solution_str)
+        if string_in_last_boxed is not None and string_in_last_boxed.strip() == "\\boxed{I don't know}" and solution_str.count("\\boxed{I don't know}") > 1:
+            running_acc = ema_coeff * running_acc + (1 - ema_coeff) * 0
+            print(f"IDK detected, returning idk_reward: {min(running_acc, idk_reward)}, running_acc: {running_acc}")
+            print(f"Solution string: {solution_str}")
+            return min(idk_reward, running_acc), MathStatus.IDK
+        if string_in_last_boxed is not None:
+            answer = remove_boxed(string_in_last_boxed)
+            if is_equiv(answer, ground_truth):
+                running_acc = ema_coeff * running_acc + (1 - ema_coeff) * 1
+                retval = 1.
+                return retval, MathStatus.RIGHT
+            else:
+                running_acc = ema_coeff * running_acc + (1 - ema_coeff) * 0
+                retval = 0.
+                return retval, MathStatus.WRONG
+    except Exception as e:
+        print(e)
+
+    return retval, MathStatus.BAD_FORMAT
 
 
 # string normalization from https://github.com/EleutherAI/lm-evaluation-harness/blob/master/lm_eval/tasks/hendrycks_math.py

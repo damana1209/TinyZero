@@ -22,6 +22,7 @@ Data
      val_batch_size: 1312
      return_raw_input_ids: False  # This should be set to true when the tokenizer between policy and rm differs
      return_raw_chat: False
+     truncation: error # error|prompt|input_ids
 
 - ``data.train_files``: Training set parquet. Can be a list or a single
   file. The program will read all files into memory, so it can't be too

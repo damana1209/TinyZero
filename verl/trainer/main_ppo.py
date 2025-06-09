@@ -26,8 +26,13 @@ def _select_rm_score_fn(data_source):
         return gsm8k.compute_score
     elif data_source == 'lighteval/MATH':
         return math.compute_score
+    elif data_source == 'lighteval/MATH_idk':
+        return math.compute_score_idk_rs
     elif "multiply" in data_source or "arithmetic" in data_source:
         return multiply.compute_score
+    elif "countdown_idk" in data_source:
+        # return countdown.compute_score_idk
+        return countdown.compute_score_idk_rs
     elif "countdown" in data_source:
         return countdown.compute_score
     else:
@@ -52,7 +57,7 @@ class RewardManager():
         reward_tensor = torch.zeros_like(data.batch['responses'], dtype=torch.float32)
 
         already_print_data_sources = {}
-
+        status_list = []
         for i in range(len(data)):
             data_item = data[i]  # DataProtoItem
 
@@ -76,8 +81,10 @@ class RewardManager():
             # select rm_score
             data_source = data_item.non_tensor_batch['data_source']
             compute_score_fn = _select_rm_score_fn(data_source)
-
             score = compute_score_fn(solution_str=sequences_str, ground_truth=ground_truth)
+            if type(score) is tuple:
+                score, status = score
+                status_list.append(status)
             reward_tensor[i, valid_response_length - 1] = score
 
             if data_source not in already_print_data_sources:
@@ -86,9 +93,9 @@ class RewardManager():
             if already_print_data_sources[data_source] < self.num_examine:
                 already_print_data_sources[data_source] += 1
                 print(sequences_str)
-
-        return reward_tensor
-
+            
+        return reward_tensor, status_list
+        
 
 import ray
 import hydra
@@ -98,7 +105,7 @@ import hydra
 def main(config):
     if not ray.is_initialized():
         # this is for local ray cluster
-        ray.init(runtime_env={'env_vars': {'TOKENIZERS_PARALLELISM': 'true', 'NCCL_DEBUG': 'WARN'}})
+        ray.init(runtime_env={'env_vars': {'TOKENIZERS_PARALLELISM': 'true', 'NCCL_DEBUG': 'WARN', 'RAY_DEBUG': 'legacy'}}, num_cpus=8)
 
     ray.get(main_task.remote(config))
 

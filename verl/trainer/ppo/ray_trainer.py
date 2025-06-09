@@ -24,6 +24,7 @@ from enum import Enum
 from pprint import pprint
 from typing import Type, Dict
 
+from verl.utils.reward_score.countdown import CountdownStatus
 import numpy as np
 from codetiming import Timer
 from omegaconf import OmegaConf, open_dict
@@ -173,9 +174,13 @@ def compute_data_metrics(batch, use_critic=True):
     # TODO: add response length
     sequence_score = batch.batch['token_level_scores'].sum(-1)
     sequence_reward = batch.batch['token_level_rewards'].sum(-1)
+    status_list = batch.non_tensor_batch['status']
 
     advantages = batch.batch['advantages']
     returns = batch.batch['returns']
+    # Count number of 0.5s in sequence_score and calculate average
+    # idks = torch.logical_and(sequence_score > 0.2, sequence_score < 0.9).float().mean().item()
+    idks = np.count_nonzero(status_list == 3) / len(status_list) if len(status_list) > 0 else 0.0
 
     max_response_length = batch.batch['responses'].shape[-1]
 
@@ -198,6 +203,7 @@ def compute_data_metrics(batch, use_critic=True):
         return_var = torch.var(valid_returns)
 
     metrics = {
+        'critic/idk_ratio': idks,
         # score
         'critic/score/mean':
             torch.mean(sequence_score).detach().item(),
@@ -343,26 +349,26 @@ class RayPPOTrainer(object):
         from torch.utils.data import DataLoader
         # TODO: we have to make sure the batch size is divisible by the dp size
         from verl.utils.dataset.rl_dataset import RLHFDataset, collate_fn
+        # breakpoint()
         self.train_dataset = RLHFDataset(parquet_files=self.config.data.train_files,
                                          tokenizer=self.tokenizer,
                                          prompt_key=self.config.data.prompt_key,
                                          max_prompt_length=self.config.data.max_prompt_length,
                                          filter_prompts=True,
                                          return_raw_chat=self.config.data.get('return_raw_chat', False),
-                                         truncation='error')
+                                         truncation=self.config.data.get('truncation', 'error'))
         self.train_dataloader = DataLoader(dataset=self.train_dataset,
                                            batch_size=self.config.data.train_batch_size,
                                            shuffle=True,
                                            drop_last=True,
                                            collate_fn=collate_fn)
-
         self.val_dataset = RLHFDataset(parquet_files=self.config.data.val_files,
                                        tokenizer=self.tokenizer,
                                        prompt_key=self.config.data.prompt_key,
                                        max_prompt_length=self.config.data.max_prompt_length,
                                        filter_prompts=True,
                                        return_raw_chat=self.config.data.get('return_raw_chat', False),
-                                       truncation='error')
+                                       truncation=self.config.data.get('truncation', 'error'))
         self.val_dataloader = DataLoader(dataset=self.val_dataset,
                                          batch_size=len(self.val_dataset),
                                          shuffle=True,
@@ -391,6 +397,7 @@ class RayPPOTrainer(object):
 
     def _validate(self):
         reward_tensor_lst = []
+        status_lst = []
         data_source_lst = []
         for test_data in self.val_dataloader:
             test_batch = DataProto.from_single_dict(test_data)
@@ -420,9 +427,10 @@ class RayPPOTrainer(object):
 
             # evaluate using reward_function
             # for certain reward function (e.g. sandbox), the generation can overlap with reward
-            reward_tensor = self.val_reward_fn(test_batch)
+            reward_tensor, status_list = self.val_reward_fn(test_batch)
 
             reward_tensor_lst.append(reward_tensor)
+            status_lst.extend(status_list)
             data_source_lst.append(test_batch.non_tensor_batch.get('data_source', ['unknown'] * reward_tensor.shape[0]))
 
         reward_tensor = torch.cat(reward_tensor_lst, dim=0).sum(-1).cpu()  # (batch_size,)
@@ -437,7 +445,28 @@ class RayPPOTrainer(object):
 
         metric_dict = {}
         for data_source, rewards in data_source_reward.items():
+            # Calculate number of idks in rewards
+            # idk_ratio = np.mean(np.logical_and(np.array(rewards) > 0.2, np.array(rewards) < 0.9))
+            # correct_ratio = np.mean(np.array(rewards) >= 0.9)
+            # wrong_ratio = np.mean(np.logical_and(np.array(rewards) <= 0.2, np.array(rewards) >= 0.05))
+            # bad_format = np.mean(np.array(rewards) < 0.05)
+            status_lst = np.array(status_lst, dtype=object)
+            idk_ratio = np.count_nonzero(status_lst == 3) / len(status_lst) if len(status_lst) > 0 else 0.0
+            correct_ratio = np.count_nonzero(status_lst == 2) / len(status_lst) if len(status_lst) > 0 else 0.0
+            wrong_ratio = np.count_nonzero(status_lst == 1) / len(status_lst) if len(status_lst) > 0 else 0.0
+            bad_format = np.count_nonzero(status_lst == 0) / len(status_lst) if len(status_lst) > 0 else 0.0
+
+            metric_dict[f'val/correct_ratio/{data_source}'] = correct_ratio
+            metric_dict[f'val/wrong_ratio/{data_source}'] = wrong_ratio
+            metric_dict[f'val/idk_ratio/{data_source}'] = idk_ratio
+            metric_dict[f'val/bad_format_ratio/{data_source}'] = bad_format
             metric_dict[f'val/test_score/{data_source}'] = np.mean(rewards)
+
+            metric_dict[f'validation/correct_ratio'] = correct_ratio
+            metric_dict[f'validation/wrong_ratio'] = wrong_ratio
+            metric_dict[f'validation/idk_ratio'] = idk_ratio
+            metric_dict[f'validation/bad_format_ratio'] = bad_format
+            metric_dict[f'validation/test_score'] = np.mean(rewards)
 
         return metric_dict
 
@@ -624,8 +653,10 @@ class RayPPOTrainer(object):
                             batch = batch.union(reward_tensor)
 
                         # we combine with rule-based rm
-                        reward_tensor = self.reward_fn(batch)
+                        # breakpoint()
+                        reward_tensor, status_list = self.reward_fn(batch)
                         batch.batch['token_level_scores'] = reward_tensor
+                        batch.non_tensor_batch['status'] = np.array(status_list, dtype=object)
 
                         # compute rewards. apply_kl_penalty if available
                         if not self.config.actor_rollout_ref.actor.use_kl_loss:
