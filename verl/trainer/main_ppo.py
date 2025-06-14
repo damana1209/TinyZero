@@ -23,13 +23,20 @@ from verl.trainer.ppo.ray_trainer import RayPPOTrainer
 
 def _select_rm_score_fn(data_source):
     if data_source == 'openai/gsm8k':
-        return gsm8k.compute_score
+        # return gsm8k.compute_score
+        return math.compute_score
+    elif data_source == 'openai/gsm8k_idk':
+        # return gsm8k.compute_score_idk
+        return math.compute_score_idk_rs
     elif data_source == 'lighteval/MATH':
         return math.compute_score
     elif data_source == 'lighteval/MATH_idk':
         return math.compute_score_idk_rs
     elif "multiply" in data_source or "arithmetic" in data_source:
         return multiply.compute_score
+    elif "countdown_idk_and_answer" in data_source:
+        return countdown.compute_score_idk_and_answer
+        # return countdown.compute_score_idk_and_answer_rs
     elif "countdown_idk" in data_source:
         # return countdown.compute_score_idk
         return countdown.compute_score_idk_rs

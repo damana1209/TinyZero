@@ -182,6 +182,11 @@ def compute_data_metrics(batch, use_critic=True):
     # idks = torch.logical_and(sequence_score > 0.2, sequence_score < 0.9).float().mean().item()
     idks = np.count_nonzero(status_list == 3) / len(status_list) if len(status_list) > 0 else 0.0
 
+    wrong_and_inconfident = np.count_nonzero(status_list == 4) / len(status_list) if len(status_list) > 0 else 0.0
+    wrong_and_confident = np.count_nonzero(status_list == 5) / len(status_list) if len(status_list) > 0 else 0.0
+    right_and_inconfident = np.count_nonzero(status_list == 6) / len(status_list) if len(status_list) > 0 else 0.0
+    right_and_confident = np.count_nonzero(status_list == 7) / len(status_list) if len(status_list) > 0 else 0.0
+
     max_response_length = batch.batch['responses'].shape[-1]
 
     prompt_mask = batch.batch['attention_mask'][:, :-max_response_length].bool()
@@ -204,6 +209,10 @@ def compute_data_metrics(batch, use_critic=True):
 
     metrics = {
         'critic/idk_ratio': idks,
+        'critic/wrong_and_inconfident': wrong_and_inconfident,
+        'critic/wrong_and_confident': wrong_and_confident,
+        'critic/right_and_inconfident': right_and_inconfident,
+        'critic/right_and_confident': right_and_confident,
         # score
         'critic/score/mean':
             torch.mean(sequence_score).detach().item(),
@@ -456,17 +465,30 @@ class RayPPOTrainer(object):
             wrong_ratio = np.count_nonzero(status_lst == 1) / len(status_lst) if len(status_lst) > 0 else 0.0
             bad_format = np.count_nonzero(status_lst == 0) / len(status_lst) if len(status_lst) > 0 else 0.0
 
+            wrong_and_inconfident = np.count_nonzero(status_lst == 4) / len(status_lst) if len(status_lst) > 0 else 0.0
+            wrong_and_confident = np.count_nonzero(status_lst == 5) / len(status_lst) if len(status_lst) > 0 else 0.0
+            right_and_inconfident = np.count_nonzero(status_lst == 6) / len(status_lst) if len(status_lst) > 0 else 0.0
+            right_and_confident = np.count_nonzero(status_lst == 7) / len(status_lst) if len(status_lst) > 0 else 0.0
+
             metric_dict[f'val/correct_ratio/{data_source}'] = correct_ratio
             metric_dict[f'val/wrong_ratio/{data_source}'] = wrong_ratio
             metric_dict[f'val/idk_ratio/{data_source}'] = idk_ratio
             metric_dict[f'val/bad_format_ratio/{data_source}'] = bad_format
             metric_dict[f'val/test_score/{data_source}'] = np.mean(rewards)
+            metric_dict[f'val/wrong_and_inconfident/{data_source}'] = wrong_and_inconfident
+            metric_dict[f'val/wrong_and_confident/{data_source}'] = wrong_and_confident
+            metric_dict[f'val/right_and_inconfident/{data_source}'] = right_and_inconfident
+            metric_dict[f'val/right_and_confident/{data_source}'] = right_and_confident
 
             metric_dict[f'validation/correct_ratio'] = correct_ratio
             metric_dict[f'validation/wrong_ratio'] = wrong_ratio
             metric_dict[f'validation/idk_ratio'] = idk_ratio
             metric_dict[f'validation/bad_format_ratio'] = bad_format
             metric_dict[f'validation/test_score'] = np.mean(rewards)
+            metric_dict[f'validation/wrong_and_inconfident'] = wrong_and_inconfident
+            metric_dict[f'validation/wrong_and_confident'] = wrong_and_confident
+            metric_dict[f'validation/right_and_inconfident'] = right_and_inconfident
+            metric_dict[f'validation/right_and_confident'] = right_and_confident
 
         return metric_dict
 

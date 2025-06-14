@@ -50,7 +50,7 @@ def gen_dataset(
     
     return samples
 
-def make_prefix(dp, template_type, idk):
+def make_prefix(dp, template_type, idk, idk_and_answer):
     target = dp['target']
     numbers = dp['nums']
     # NOTE: also need to change reward_score/countdown.py
@@ -58,6 +58,18 @@ def make_prefix(dp, template_type, idk):
         if idk:
             prefix = f"""A conversation between User and Assistant. The user asks a question, and the Assistant solves it. The assistant first thinks about the reasoning process in the mind and then provides the user with the answer.
 User: Using the numbers {numbers}, create an equation that equals {target}. You can use basic arithmetic operations (+, -, *, /) and each number can only be used once. Show your work in <think> </think> tags. And return the final answer in <answer> </answer> tags, for example <answer> (1 + 2) / 3 </answer>. If you're unsure of how to solve the problem, just say <answer> I don't know </answer>.
+Assistant: Let me solve this step by step.
+<think>"""
+        elif idk_and_answer:
+            prefix = f"""A conversation between User and Assistant. The user asks a question, and the Assistant solves it. The assistant first thinks about the reasoning process in the mind and then provides the user with the answer AND the confidence.
+User: Using the numbers {numbers}, create an equation that equals {target}. You can use basic arithmetic operations (+, -, *, /) and each number can only be used once. Show your work in <think> </think> tags. And return the final answer in <answer> </answer> tags, for example <answer> (1 + 2) / 3 </answer>. After the answer, give the confidence you have in <confidence> </confidence> tags. If you're sure your answer is correct, just say <confidence> Sure </confidence>. If you're unsure of the answer, just say <confidence> Not sure </confidence>. 
+A typical response would like: 
+<think> ...thinking process... </think>
+<answer> (1 + 2) / 3 </answer> 
+<confidence> Sure/Not sure </confidence>
+
+Remember its not good to be overconfident, so if you're not sure, just say <confidence> Not sure </confidence>.
+
 Assistant: Let me solve this step by step.
 <think>"""
         else:
@@ -85,11 +97,14 @@ if __name__ == '__main__':
     parser.add_argument('--test_size', type=int, default=1024)
     parser.add_argument('--template_type', type=str, default='base')
     parser.add_argument('--idk', action='store_true', help='Whether to use idk template')
+    parser.add_argument('--idk_and_answer', action='store_true', help='Whether to use idk with answer template')
 
     args = parser.parse_args()
 
     if args.idk:
         data_source = 'countdown_idk'
+    elif args.idk_and_answer:
+        data_source = 'countdown_idk_and_answer'
     else:
         data_source = 'countdown'
     TRAIN_SIZE = args.train_size
@@ -103,7 +118,7 @@ if __name__ == '__main__':
 
     def make_map_fn(split):
         def process_fn(example, idx):
-            question = make_prefix(example, template_type=args.template_type, idk=args.idk)
+            question = make_prefix(example, template_type=args.template_type, idk=args.idk, idk_and_answer=args.idk_and_answer)
             solution = {
                 "target": example['target'],
                 "numbers": example['nums']
@@ -133,6 +148,8 @@ if __name__ == '__main__':
     local_dir = args.local_dir
     hdfs_dir = args.hdfs_dir
 
+    print(train_dataset[0]['prompt'][0]['content'])
+    breakpoint()
     train_dataset.to_parquet(os.path.join(local_dir, 'train.parquet'))
     test_dataset.to_parquet(os.path.join(local_dir, 'test.parquet'))
 

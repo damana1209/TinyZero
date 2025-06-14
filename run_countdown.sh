@@ -18,14 +18,19 @@ echo "job is starting on `hostname`"
 # DATASET="countdown_idk"
 # DATASET="lighteval/MATH"
 DATASET="lighteval/MATH_idk"
+# DATASET="gsm8k_idk"
+# DATASET="gsm8k"
+# DATASET="countdown_idk_and_answer"
 export CUDA_VISIBLE_DEVICES=0,1
 export N_GPUS=2
 export BASE_MODEL="/work/nvme/betg/darora1/verifiers/Qwen2.5-1.5B"
+# export BASE_MODEL="/work/nvme/betg/darora1/verifiers/Llama-3.2-1B"
+# export BASE_MODEL="/work/nvme/betg/darora1/verifiers/OctoThinker-1B-Short-Base"
 # export DATA_DIR="/work/nvme/betg/darora1/TinyZero/countdown_idk/"
 export DATA_DIR="/work/nvme/betg/darora1/TinyZero/"$DATASET"/"
 export ROLLOUT_TP_SIZE=2
-# export EXPERIMENT_NAME=$DATASET"-qwen2.5-1.5b_entropy_coeff_1e-3"
-export EXPERIMENT_NAME=$DATASET"-qwen2.5-1.5b_bsz_256_lr_2e-7_entropy_coeff_1e-3_idk_0.3"
+export EXPERIMENT_NAME=$DATASET"-qwen-1b_entropy_coeff_1e-3_idk_0.5_lr_5e-7_2"
+# export EXPERIMENT_NAME=$DATASET"-qwen2.5-1.5b_4choice"
 export VLLM_ATTENTION_BACKEND=XFORMERS
 
 bash ./scripts/train_tiny_zero.sh

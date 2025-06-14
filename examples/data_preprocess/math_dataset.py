@@ -60,7 +60,31 @@ if __name__ == '__main__':
         def process_fn(example, idx):
             question = example.pop('problem')
 
-            question = question + ' ' + instruction_following
+            if not args.idk:
+                question = f"""A conversation between User and Assistant. The user asks a question, and the Assistant solves it. The assistant first thinks about the reasoning process in the mind and then provides the user with the answer.
+User: {question} Show your work in <think> </think> tags and return the final answer in <answer> </answer> tags, for example <answer> \\boxed{{\\frac{{4}}{{5}}}} </answer>.
+Assistant: Let me solve this step by step.
+<think>"""
+            else:
+                question = f"""A conversation between User and Assistant. The user asks a question, and the Assistant solves it. The assistant first thinks about the reasoning process in the mind and then provides the user with the answer.
+User: {question}
+
+Show your work in <think> </think> tags and return the final answer in <answer> </answer> tags, for example 
+
+<think> ... thinking process here ... </think>
+<answer> 
+$\\boxed{{\\frac{{4}}{{5}}}}$
+</answer>.
+
+If you get stuck or think that you've made a mistake, just say 
+
+<think> ... thinking process here ... </think>
+<answer> 
+\\boxed{{I don't know}}
+</answer>.
+
+Assistant: Let me solve this step by step.
+<think>"""
 
             answer = example.pop('solution')
             solution = extract_solution(answer)
@@ -87,9 +111,10 @@ if __name__ == '__main__':
     train_dataset = train_dataset.map(function=make_map_fn('train'), with_indices=True)
     test_dataset = test_dataset.map(function=make_map_fn('test'), with_indices=True)
 
+    print("Example:")
+    print(train_dataset[0]['prompt'][0]['content'])
     local_dir = args.local_dir
     hdfs_dir = args.hdfs_dir
-    breakpoint()
     train_dataset.to_parquet(os.path.join(local_dir, 'train.parquet'))
     test_dataset.to_parquet(os.path.join(local_dir, 'test.parquet'))
 

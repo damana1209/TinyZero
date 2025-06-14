@@ -13,6 +13,7 @@
 # limitations under the License.
 # Adapted from https://github.com/EleutherAI/lm-evaluation-harness/blob/main/lm_eval/tasks/hendrycks_math/utils.py
 import random
+import re 
 
 class MathStatus:
     BAD_FORMAT = 0
@@ -20,20 +21,47 @@ class MathStatus:
     RIGHT = 2
     IDK = 3
 
+def extract_solution(solution_str):
+    """Check if the solution string is in a valid format."""
+    
+    if "Assistant:" in solution_str:
+        solution_str = solution_str.split("Assistant:", 1)[1]
+    
+    if solution_str.count("<answer>") > 1:
+        return None
+    if "User:" in solution_str:
+        return None
+    if solution_str.count("<think>") > 1 or solution_str.count("</think>") != 1:
+        return None
+    
+    answer_pattern = r'<answer>(.*?)</answer>'
+    match = re.finditer(answer_pattern, solution_str, re.DOTALL)
+    matches = list(match)
+    if matches:
+        final_answer = matches[-1].group(1).strip()
+    else:
+        final_answer = None
+    return final_answer
+
 def compute_score(solution_str, ground_truth) -> float:
     retval = 0.
     to_print = random.randint(1, 64) == 1
     if to_print:
         print(f"Solution string: {solution_str}")
     try:
-        string_in_last_boxed = last_boxed_only_string(solution_str)
+        extracted_solution = extract_solution(solution_str)
+        if extracted_solution is None:
+            retval = 0.
+            return retval, MathStatus.BAD_FORMAT
+        
+        string_in_last_boxed = last_boxed_only_string(extracted_solution)
         if string_in_last_boxed is not None:
             answer = remove_boxed(string_in_last_boxed)
             if is_equiv(answer, ground_truth):
                 retval = 1.
                 return retval, MathStatus.RIGHT
             else:
-                retval = 0.
+                retval = 0.1 # format reward
                 return retval, MathStatus.WRONG
     except Exception as e:
         print(e)
@@ -42,19 +70,23 @@ def compute_score(solution_str, ground_truth) -> float:
 
 running_acc = 0.5
 ema_coeff = 0.999
-def compute_score_idk_rs(solution_str, ground_truth, idk_reward=0.3) -> float:
+def compute_score_idk_rs(solution_str, ground_truth, idk_reward=0.5) -> float:
     global running_acc, ema_coeff
     retval = 0.
     to_print = random.randint(1, 64) == 1
     if to_print:
         print(f"Solution string: {solution_str}")
     try:
-        string_in_last_boxed = last_boxed_only_string(solution_str)
-        if string_in_last_boxed is not None and string_in_last_boxed.strip() == "\\boxed{I don't know}" and solution_str.count("\\boxed{I don't know}") > 1:
-            running_acc = ema_coeff * running_acc + (1 - ema_coeff) * 0
-            print(f"IDK detected, returning idk_reward: {min(running_acc, idk_reward)}, running_acc: {running_acc}")
+        extracted_solution = extract_solution(solution_str)
+        if extracted_solution is None:
+            retval = 0.
+            return retval, MathStatus.BAD_FORMAT
+        string_in_last_boxed = last_boxed_only_string(extracted_solution)
+        if string_in_last_boxed is not None and string_in_last_boxed.strip() == "\\boxed{I don't know}":
+            running_acc = ema_coeff * running_acc + (1 - ema_coeff) * 0.1
+            print(f"IDK detected, returning idk_reward: {min(2*running_acc, idk_reward)}, running_acc: {running_acc}")
             print(f"Solution string: {solution_str}")
-            return min(idk_reward, running_acc), MathStatus.IDK
+            return min(2*running_acc, idk_reward), MathStatus.IDK
         if string_in_last_boxed is not None:
             answer = remove_boxed(string_in_last_boxed)
             if is_equiv(answer, ground_truth):
@@ -62,8 +94,8 @@ def compute_score_idk_rs(solution_str, ground_truth, idk_reward=0.3) -> float:
                 retval = 1.
                 return retval, MathStatus.RIGHT
             else:
-                running_acc = ema_coeff * running_acc + (1 - ema_coeff) * 0
-                retval = 0.
+                running_acc = ema_coeff * running_acc + (1 - ema_coeff) * 0.1
+                retval = 0.1
                 return retval, MathStatus.WRONG
     except Exception as e:
         print(e)

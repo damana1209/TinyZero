@@ -35,13 +35,17 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--local_dir', default='~/data/gsm8k')
     parser.add_argument('--hdfs_dir', default=None)
+    parser.add_argument('--idk', action='store_true', help='Whether to use idk template')
 
     args = parser.parse_args()
 
     num_few_shot = 5
-    data_source = 'openai/gsm8k'
+    if args.idk:
+        data_source = 'openai/gsm8k_idk'
+    else:
+        data_source = 'openai/gsm8k'
 
-    dataset = datasets.load_dataset(data_source, 'main')
+    dataset = datasets.load_dataset('openai/gsm8k', 'main')
 
     train_dataset = dataset['train']
     test_dataset = dataset['test']
@@ -54,7 +58,40 @@ if __name__ == '__main__':
         def process_fn(example, idx):
             question_raw = example.pop('question')
 
-            question = question_raw + ' ' + instruction_following
+            if not args.idk:
+                question = f"""A conversation between User and Assistant. The user asks a question, and the Assistant solves it. The assistant first thinks about the reasoning process in the mind and then provides the user with the answer.
+User: {question_raw} 
+
+Show your work in <think> </think> tags and return the final answer in <answer> </answer> tags, for example 
+
+<think> ... thinking process here ... </think>
+<answer> 
+$\\boxed{{\\frac{{4}}{{5}}}}$
+</answer>.
+
+Assistant: Let me solve this step by step.
+<think>"""
+            else:
+                question = f"""A conversation between User and Assistant. The user asks a question, and the Assistant solves it. The assistant first thinks about the reasoning process in the mind and then provides the user with the answer.
+User: {question_raw}
+
+Show your work in <think> </think> tags and return the final answer in <answer> </answer> tags, for example 
+
+<think> ... thinking process here ... </think>
+<answer> 
+$\\boxed{{\\frac{{4}}{{5}}}}$
+</answer>.
+
+If you get stuck or think that you've made a mistake, just say 
+
+<think> ... thinking process here ... </think>
+<answer> 
+\\boxed{{I don't know}}
+</answer>.
+
+Assistant: Let me solve this step by step.
+<think>"""
+            # question = question_raw + ' ' + instruction_following
 
             answer_raw = example.pop('answer')
             solution = extract_solution(answer_raw)
@@ -67,7 +104,7 @@ if __name__ == '__main__':
                 "ability": "math",
                 "reward_model": {
                     "style": "rule",
-                    "ground_truth": solution
+                    "ground_truth": f'\\boxed{{{solution}}}',
                 },
                 "extra_info": {
                     'split': split,
@@ -86,6 +123,9 @@ if __name__ == '__main__':
     local_dir = args.local_dir
     hdfs_dir = args.hdfs_dir
 
+    print("Example:")
+    print(train_dataset[0]['prompt'][0]['content'])
+    breakpoint()
     train_dataset.to_parquet(os.path.join(local_dir, 'train.parquet'))
     test_dataset.to_parquet(os.path.join(local_dir, 'test.parquet'))
 
