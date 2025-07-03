@@ -14,6 +14,7 @@
 
 from importlib.metadata import version, PackageNotFoundError
 
+
 def get_version(pkg):
     try:
         return version(pkg)
@@ -21,30 +22,35 @@ def get_version(pkg):
         return None
 
 
-package_name = 'vllm'
+package_name = "vllm"
 package_version = get_version(package_name)
 print("Package version:", package_version)
-if package_version == '0.3.1':
-    vllm_version = '0.3.1'
+if package_version == "0.3.1":
+    vllm_version = "0.3.1"
     from .vllm_v_0_3_1.llm import LLM
     from .vllm_v_0_3_1.llm import LLMEngine
     from .vllm_v_0_3_1 import parallel_state
-elif package_version == '0.4.2':
-    vllm_version = '0.4.2'
+elif package_version == "0.4.2":
+    vllm_version = "0.4.2"
     from .vllm_v_0_4_2.llm import LLM
     from .vllm_v_0_4_2.llm import LLMEngine
     from .vllm_v_0_4_2 import parallel_state
-elif package_version == '0.5.4':
-    vllm_version = '0.5.4'
+elif package_version == "0.5.4":
+    vllm_version = "0.5.4"
     from .vllm_v_0_5_4.llm import LLM
     from .vllm_v_0_5_4.llm import LLMEngine
     from .vllm_v_0_5_4 import parallel_state
-elif package_version == '0.6.3' or package_version == '0.6.3.post2.dev0+ga2c71c540.d20250602.cu126' or package_version == '0.6.4.dev0+gfd47e57f4.d20250602.cu126':
-    vllm_version = '0.6.3'
+elif (
+    package_version == "0.6.3"
+    or package_version == "0.6.3.post2.dev0+ga2c71c540.d20250602.cu126"
+    or package_version == "0.6.4.dev0+gfd47e57f4.d20250602.cu126"
+    or package_version == "0.6.4.dev0+gfd47e57f4.d20250703.cu126"
+):  # ? Matan: added the last one, what Daman installed, previously not on the list
+    vllm_version = "0.6.3"
     from .vllm_v_0_6_3.llm import LLM
     from .vllm_v_0_6_3.llm import LLMEngine
     from .vllm_v_0_6_3 import parallel_state
 else:
     raise ValueError(
-        f'vllm version {package_version} not supported. Currently supported versions are 0.3.1, 0.4.2, 0.5.4 and 0.6.3.'
+        f"vllm version {package_version} not supported. Currently supported versions are 0.3.1, 0.4.2, 0.5.4 and 0.6.3."
     )
