@@ -27,36 +27,39 @@ def extract_solution(solution_str):
     solution = re.search("#### (\\-?[0-9\\.\\,]+)", solution_str)
     assert solution is not None
     final_solution = solution.group(0)
-    final_solution = final_solution.split('#### ')[1].replace(',', '')
+    final_solution = final_solution.split("#### ")[1].replace(",", "")
     return final_solution
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument('--local_dir', default='~/data/gsm8k')
-    parser.add_argument('--hdfs_dir', default=None)
-    parser.add_argument('--idk', action='store_true', help='Whether to use idk template')
+    parser.add_argument("--local_dir", default="~/data/gsm8k")
+    parser.add_argument("--hdfs_dir", default=None)
+    parser.add_argument(
+        "--idk", action="store_true", help="Whether to use idk template"
+    )
 
     args = parser.parse_args()
 
     num_few_shot = 5
     if args.idk:
-        data_source = 'openai/gsm8k_idk'
+        data_source = "openai/gsm8k_idk"
     else:
-        data_source = 'openai/gsm8k'
+        data_source = "openai/gsm8k"
 
-    dataset = datasets.load_dataset('openai/gsm8k', 'main')
+    dataset = datasets.load_dataset("openai/gsm8k", "main")
 
-    train_dataset = dataset['train']
-    test_dataset = dataset['test']
+    train_dataset = dataset["train"]
+    test_dataset = dataset["test"]
 
-    instruction_following = "Let's think step by step and output the final answer after \"####\"."
+    instruction_following = (
+        'Let\'s think step by step and output the final answer after "####".'
+    )
 
     # add a row to each data item that represents a unique id
     def make_map_fn(split):
-
         def process_fn(example, idx):
-            question_raw = example.pop('question')
+            question_raw = example.pop("question")
 
             if not args.idk:
                 question = f"""A conversation between User and Assistant. The user asks a question, and the Assistant solves it. The assistant first thinks about the reasoning process in the mind and then provides the user with the answer.
@@ -93,41 +96,42 @@ Assistant: Let me solve this step by step.
 <think>"""
             # question = question_raw + ' ' + instruction_following
 
-            answer_raw = example.pop('answer')
+            answer_raw = example.pop("answer")
             solution = extract_solution(answer_raw)
             data = {
                 "data_source": data_source,
-                "prompt": [{
-                    "role": "user",
-                    "content": question,
-                }],
+                "prompt": [
+                    {
+                        "role": "user",
+                        "content": question,
+                    }
+                ],
                 "ability": "math",
                 "reward_model": {
                     "style": "rule",
-                    "ground_truth": f'\\boxed{{{solution}}}',
+                    "ground_truth": f"\\boxed{{{solution}}}",
                 },
                 "extra_info": {
-                    'split': split,
-                    'index': idx,
-                    'answer': answer_raw,
+                    "split": split,
+                    "index": idx,
+                    "answer": answer_raw,
                     "question": question_raw,
-                }
+                },
             }
             return data
 
         return process_fn
 
-    train_dataset = train_dataset.map(function=make_map_fn('train'), with_indices=True)
-    test_dataset = test_dataset.map(function=make_map_fn('test'), with_indices=True)
+    train_dataset = train_dataset.map(function=make_map_fn("train"), with_indices=True)
+    test_dataset = test_dataset.map(function=make_map_fn("test"), with_indices=True)
 
     local_dir = args.local_dir
     hdfs_dir = args.hdfs_dir
 
     print("Example:")
-    print(train_dataset[0]['prompt'][0]['content'])
-    breakpoint()
-    train_dataset.to_parquet(os.path.join(local_dir, 'train.parquet'))
-    test_dataset.to_parquet(os.path.join(local_dir, 'test.parquet'))
+    print(train_dataset[0]["prompt"][0]["content"])
+    train_dataset.to_parquet(os.path.join(local_dir, "train.parquet"))
+    test_dataset.to_parquet(os.path.join(local_dir, "test.parquet"))
 
     if hdfs_dir is not None:
         makedirs(hdfs_dir)

@@ -1,0 +1,2 @@
+* it would be useful to seperate the rewards etc that we write from the ones that were already provided, for example in  `from verl.utils.reward_score import gsm8k, math, multiply, countdown`
+* no random `globals` instead use a global cfg 

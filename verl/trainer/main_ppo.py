@@ -23,6 +23,7 @@ torch.set_default_dtype(torch.bfloat16)
 torch.set_default_device("cuda")
 from verl.utils.reward_score import gsm8k, math, multiply, countdown
 from verl.trainer.ppo.ray_trainer import RayPPOTrainer
+import ray
 
 
 def _select_rm_score_fn(data_source):
@@ -89,20 +90,30 @@ class RewardManager:
             valid_response_ids = response_ids[:valid_response_length]
 
             # decode
-            sequences = torch.cat((valid_prompt_ids, valid_response_ids))
-            sequences_str = self.tokenizer.decode(sequences)
+            # ? previously was passing question (i.e. valid_prompt_ids) to the grader -- why?
+            concat_prompt_and_response_tokens = torch.cat(
+                (valid_prompt_ids, valid_response_ids)
+            )
+            concat_prompt_and_response_str = self.tokenizer.decode(
+                concat_prompt_and_response_tokens
+            )
+
+            response_str = self.tokenizer.decode(valid_response_ids)
 
             ground_truth = data_item.non_tensor_batch["reward_model"]["ground_truth"]
 
             # select rm_score
             data_source = data_item.non_tensor_batch["data_source"]
             compute_score_fn = _select_rm_score_fn(data_source)
+            # breakpoint()
             score = compute_score_fn(
-                solution_str=sequences_str, ground_truth=ground_truth
+                solution_str=response_str, ground_truth=ground_truth
             )
             if type(score) is tuple:
                 score, status = score
                 status_list.append(status)
+
+            # ? this error is false becuase tuple was handled above
             reward_tensor[i, valid_response_length - 1] = score
 
             if data_source not in already_print_data_sources:
@@ -110,7 +121,7 @@ class RewardManager:
 
             if already_print_data_sources[data_source] < self.num_examine:
                 already_print_data_sources[data_source] += 1
-                print(sequences_str)
+                print(concat_prompt_and_response_str)
 
         return reward_tensor, status_list
 

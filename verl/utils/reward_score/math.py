@@ -13,28 +13,34 @@
 # limitations under the License.
 # Adapted from https://github.com/EleutherAI/lm-evaluation-harness/blob/main/lm_eval/tasks/hendrycks_math/utils.py
 import random
-import re 
+import re
+from typing import Tuple
+from enum import Enum
 
-class MathStatus:
+
+class MathStatus(Enum):
     BAD_FORMAT = 0
     WRONG = 1
     RIGHT = 2
     IDK = 3
 
-def extract_solution(solution_str):
+
+def _ORIGINAL_extract_solution(solution_str):
+    # ? this is the original extract solution but does not fit the prompt that we use (from `math_dataset`)
+    # ? "Let's think step by step and output the final answer within \\boxed{}. If you're unsure of how to solve the problem, just say \\boxed{I don't know}"
     """Check if the solution string is in a valid format."""
-    
+
     if "Assistant:" in solution_str:
         solution_str = solution_str.split("Assistant:", 1)[1]
-    
+
     if solution_str.count("<answer>") > 1:
         return None
     if "User:" in solution_str:
         return None
     if solution_str.count("<think>") > 1 or solution_str.count("</think>") != 1:
         return None
-    
-    answer_pattern = r'<answer>(.*?)</answer>'
+
+    answer_pattern = r"<answer>(.*?)</answer>"
     match = re.finditer(answer_pattern, solution_str, re.DOTALL)
     matches = list(match)
     if matches:
@@ -43,68 +49,143 @@ def extract_solution(solution_str):
         final_answer = None
     return final_answer
 
-def compute_score(solution_str, ground_truth) -> float:
-    retval = 0.
-    to_print = random.randint(1, 64) == 1
-    if to_print:
-        print(f"Solution string: {solution_str}")
-    try:
-        extracted_solution = extract_solution(solution_str)
-        if extracted_solution is None:
-            retval = 0.
-            return retval, MathStatus.BAD_FORMAT
-        
-        string_in_last_boxed = last_boxed_only_string(extracted_solution)
-        if string_in_last_boxed is not None:
-            answer = remove_boxed(string_in_last_boxed)
-            if is_equiv(answer, ground_truth):
-                retval = 1.
-                return retval, MathStatus.RIGHT
-            else:
-                retval = 0.1 # format reward
-                return retval, MathStatus.WRONG
-    except Exception as e:
-        print(e)
 
-    return retval, MathStatus.BAD_FORMAT
+# def compute_score(solution_str, ground_truth) -> float:
+#     retval = 0.0
+#     to_print = random.randint(1, 64) == 1
+#     if to_print:
+#         print(f"Solution string: {solution_str}")
+#     try:
+#         extracted_solution = extract_solution(solution_str)
+#         if extracted_solution is None:
+#             retval = 0.0
+#             return retval, MathStatus.BAD_FORMAT
 
+#         string_in_last_boxed = last_boxed_only_string(extracted_solution)
+#         if string_in_last_boxed is not None:
+#             answer = remove_boxed(string_in_last_boxed)
+#             if is_equiv(answer, ground_truth):
+#                 retval = 1.0
+#                 return retval, MathStatus.RIGHT
+#             else:
+#                 retval = 0.1  # format reward
+#                 return retval, MathStatus.WRONG
+#     except Exception as e:
+#         print(e)
+
+#     return retval, MathStatus.BAD_FORMAT
+
+
+def extract_solution(solution_str: str) -> None | str:
+    """
+    solution_str: only the text returned by the LLM. ASSUMING IT IS RAW -- i.e. `\b` is the charecters `\` and `b` not backspace
+    The string had "good" formatting if there is only one \\boxed{X} for some X.
+    If the string is good, X is returned, else None (indicating bad formatting)
+    """
+    DELIMITER = r"\boxed{"
+    par_mapping = {"(": ")", "{": "}", "[": "]", "<": ">"}
+
+    # checked that there is only one answer
+    if solution_str.rfind(DELIMITER) != solution_str.find(DELIMITER):
+        return None
+
+    else:
+        del_idx = solution_str.find(DELIMITER)
+        X = ""
+        pars_stack: list = []
+
+        if del_idx is not -1:  # there was at least one instance
+            for char in solution_str[del_idx + len(DELIMITER) :]:
+                # is char open par?
+                if char in par_mapping.keys():
+                    pars_stack = pars_stack + [
+                        char
+                    ]  # push the open par to the top of the stack
+                # is char close par?
+                elif char in par_mapping.values():
+                    # closing the first '{'
+                    if len(pars_stack) == 0 and char == "}":
+                        return X
+
+                    # not closing any valid opening
+                    elif len(pars_stack) == 0:
+                        return None
+
+                    # closing a valid par (pars_stack has 1 element due to the above check)
+                    elif par_mapping[pars_stack[-1]] == char:
+                        pass
+
+                # its just a regular char
+                else:
+                    pass
+
+                X = X + str(char)
+
+            # if we did not return from finding '}' then the DELIMITER was not properly closed
+        # if we did not have 1 del_idx or we existed
+        return None
+
+
+# TODO move these into a global config
+# TODO incorporate it in the MathStatus class above?
 running_acc = 0.5
 ema_coeff = 0.999
-def compute_score_idk_rs(solution_str, ground_truth, idk_reward=0.5) -> float:
+idk_min_reward = 0.1  # the real reward is the base accumlator
+correct_reward = 1
+wrong_answer_right_format_reward = 0.1
+wrong_format_reward = 0
+
+
+def compute_score_idk_rs(
+    solution_str: str, ground_truth: str, idk_max_reward=0.5
+) -> Tuple[float, Enum]:
+    """
+    solution_str: only the model's response decoded to str
+    ground_truth: the ground truth answer to the question given as a str
+    idk_max_reward: the maximum reward we will give for idk (starts at running_acc as above and converges to the model current reward)
+    """
     global running_acc, ema_coeff
-    retval = 0.
+    retval = 0.0
     to_print = random.randint(1, 64) == 1
+    # breakpoint()
     if to_print:
         print(f"Solution string: {solution_str}")
+        print(f"DEBUG: {extracted_solution=}")
     try:
         extracted_solution = extract_solution(solution_str)
         if extracted_solution is None:
-            retval = 0.
-            return retval, MathStatus.BAD_FORMAT
-        string_in_last_boxed = last_boxed_only_string(extracted_solution)
-        if string_in_last_boxed is not None and string_in_last_boxed.strip() == "\\boxed{I don't know}":
-            running_acc = ema_coeff * running_acc + (1 - ema_coeff) * 0.1
-            print(f"IDK detected, returning idk_reward: {min(2*running_acc, idk_reward)}, running_acc: {running_acc}")
-            print(f"Solution string: {solution_str}")
-            return min(2*running_acc, idk_reward), MathStatus.IDK
-        if string_in_last_boxed is not None:
-            answer = remove_boxed(string_in_last_boxed)
-            if is_equiv(answer, ground_truth):
-                running_acc = ema_coeff * running_acc + (1 - ema_coeff) * 1
-                retval = 1.
-                return retval, MathStatus.RIGHT
-            else:
-                running_acc = ema_coeff * running_acc + (1 - ema_coeff) * 0.1
-                retval = 0.1
-                return retval, MathStatus.WRONG
+            retval = wrong_format_reward
+            return (
+                retval,
+                MathStatus.BAD_FORMAT,
+            )  # ?make sure that the caller expctes a tuple
+
+        elif extracted_solution == "I don't know":
+            running_acc = ema_coeff * running_acc + (1 - ema_coeff) * idk_min_reward
+            print(
+                f"IDK detected, returning idk_reward: {min(running_acc, idk_max_reward)}, running_acc: {running_acc}"
+            )
+            return min(running_acc, idk_max_reward), MathStatus.IDK
+        # if extracted_solution is not None:
+        elif is_equiv(extracted_solution, ground_truth):
+            running_acc = ema_coeff * running_acc + (1 - ema_coeff) * correct_reward
+            retval = 1.0
+            return retval, MathStatus.RIGHT
+        else:
+            running_acc = (
+                ema_coeff * running_acc
+                + (1 - ema_coeff) * wrong_answer_right_format_reward
+            )
+            retval = 0.1
+            return retval, MathStatus.WRONG
+
     except Exception as e:
         print(e)
 
     return retval, MathStatus.BAD_FORMAT
 
 
-# string normalization from https://github.com/EleutherAI/lm-evaluation-harness/blob/master/lm_eval/tasks/hendrycks_math.py
-def is_equiv(str1, str2, verbose=False):
+def is_equiv(str1: str, str2: str, verbose=False):
     if str1 is None and str2 is None:
         print("WARNING: Both None")
         return True
@@ -121,48 +202,51 @@ def is_equiv(str1, str2, verbose=False):
         return str1 == str2
 
 
+# string normalization from https://github.com/EleutherAI/lm-evaluation-harness/blob/master/lm_eval/tasks/hendrycks_math.py
+
+
 def remove_boxed(s):
     if "\\boxed " in s:
         left = "\\boxed "
-        assert s[:len(left)] == left
-        return s[len(left):]
+        assert s[: len(left)] == left
+        return s[len(left) :]
 
     left = "\\boxed{"
 
-    assert s[:len(left)] == left
+    assert s[: len(left)] == left
     assert s[-1] == "}"
 
-    return s[len(left):-1]
+    return s[len(left) : -1]
 
 
-def last_boxed_only_string(string):
-    idx = string.rfind("\\boxed")
-    if "\\boxed " in string:
-        return "\\boxed " + string.split("\\boxed ")[-1].split("$")[0]
-    if idx < 0:
-        idx = string.rfind("\\fbox")
-        if idx < 0:
-            return None
+# def last_boxed_only_string(string: str):
+#     idx = string.rfind("\\boxed")
+#     if "\\boxed " in string:
+#         return "\\boxed " + string.split("\\boxed ")[-1].split("$")[0]
+#     if idx < 0:
+#         idx = string.rfind("\\fbox")
+#         if idx < 0:
+#             return None
 
-    i = idx
-    right_brace_idx = None
-    num_left_braces_open = 0
-    while i < len(string):
-        if string[i] == "{":
-            num_left_braces_open += 1
-        if string[i] == "}":
-            num_left_braces_open -= 1
-            if num_left_braces_open == 0:
-                right_brace_idx = i
-                break
-        i += 1
+#     i = idx
+#     right_brace_idx = None
+#     num_left_braces_open = 0
+#     while i < len(string):
+#         if string[i] == "{":
+#             num_left_braces_open += 1
+#         if string[i] == "}":
+#             num_left_braces_open -= 1
+#             if num_left_braces_open == 0:
+#                 right_brace_idx = i
+#                 break
+#         i += 1
 
-    if right_brace_idx is None:
-        retval = None
-    else:
-        retval = string[idx:right_brace_idx + 1]
+#     if right_brace_idx is None:
+#         retval = None
+#     else:
+#         retval = string[idx : right_brace_idx + 1]
 
-    return retval
+#     return retval
 
 
 def fix_fracs(string):

@@ -149,7 +149,6 @@ if __name__ == '__main__':
     hdfs_dir = args.hdfs_dir
 
     print(train_dataset[0]['prompt'][0]['content'])
-    breakpoint()
     train_dataset.to_parquet(os.path.join(local_dir, 'train.parquet'))
     test_dataset.to_parquet(os.path.join(local_dir, 'test.parquet'))
 
