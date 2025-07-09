@@ -152,13 +152,8 @@ def compute_score_idk_rs(
     
    
     """
+    #TODO check that our reward shipping makes sense
     global running_acc, ema_coeff
-    retval = 0.0
-    to_print = random.randint(1, 64) == 1
-    # breakpoint()
-    if to_print:
-        print(f"Solution string: {solution_str}")
-        print(f"DEBUG: {extracted_solution=}")
     try:
         extracted_solution = extract_solution(solution_str)
         if extracted_solution is None:
@@ -181,7 +176,7 @@ def compute_score_idk_rs(
 
         # if extracted_solution is not None:
         elif is_equiv(extracted_solution, ground_truth):
-            running_acc = ema_coeff * running_acc + (1 - ema_coeff) * correct_reward
+            running_acc = ema_coeff * running_acc + (1 - ema_coeff) *reward_dict[MathStatus.RIGHT] 
             ret : Final[dict] = {
                 "reward_float" :reward_dict[MathStatus.RIGHT],
                 "reward_class" : MathStatus.RIGHT,
@@ -198,9 +193,13 @@ def compute_score_idk_rs(
                 "reward_class" : MathStatus.RIGHT,
                 "cur_reward_for_idk": min(running_acc, idk_max_reward),
             }  
+        
     except Exception as e:
         print(e)
-
+    to_print = random.randint(1, 64) == 1
+    if to_print:
+        print(f"OCCUSIONAL QUALITY PRINT: \n\n {solution_str=} \n {extracted_solution=} \n {ret=}")
+    
     return ret
 
 def is_equiv(str1: str, str2: str, verbose=False):

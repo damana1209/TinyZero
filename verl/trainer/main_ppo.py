@@ -114,26 +114,23 @@ class RewardManager:
                 solution_str=response_str, ground_truth=ground_truth
             )
             assert compute_score_fn_return is dict, (
-                "I changed the interface so instead of returning a tuple with varying number of params, we return a dict. Usually, each element of the dict will be an integer-ish type representing a particular metric of the response"
+                "Matan: I changed the interface so instead of returning a tuple with varying number of params, we return a dict. Usually, each element of the dict will be an integer-ish type representing a particular metric of the response"
             )
             for k, v in compute_score_fn_return.items():
                 if k not in compute_score_fn_returns:
                     compute_score_fn_return[k] = []
                 compute_score_fn_returns[k].append(v)
-            # TODO this is bad -- instead return dict
-
-            # ? this error is false becuase tuple was handled above
-            # TODO why such weird indexing?
-            reward_tensor[i, valid_response_length - 1] = score
 
             if data_source not in already_print_data_sources:
                 already_print_data_sources[data_source] = 0
 
             if already_print_data_sources[data_source] < self.num_examine:
+                assert False, (
+                    f"I don't know what's printing data sources? {self.num_examine=} {already_print_data_sources=} {data_source=}"
+                )
                 already_print_data_sources[data_source] += 1
                 print(concat_prompt_and_response_str)
-        # TODO this is bad -- instead return dict
-        return reward_tensor, status_list, sum(running_accs) / len(running_accs)
+        return compute_score_fn_returns
 
 
 import ray

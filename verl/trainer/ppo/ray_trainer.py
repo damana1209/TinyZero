@@ -42,6 +42,8 @@ from verl.utils.seqlen_balancing import (
     get_seqlen_balanced_partitions,
     log_seqlen_unbalance,
 )
+#? matan
+from verl.utils.reward_score.math import MathStatus
 
 WorkerType = Type[Worker]
 
@@ -188,6 +190,7 @@ def _compute_response_info(batch):
         response_length=response_length,
     )
 
+def _matan_compute_data_metrics
 
 def compute_data_metrics(batch, is_validate, use_critic=True):
     """
@@ -205,19 +208,36 @@ def compute_data_metrics(batch, is_validate, use_critic=True):
                 logger.log(data=metrics, step=self.global_steps)
     ```
     """
-
+    # assert False, "I wrote `_matan_data_metrics` because I had relatively low confidence in "
     # TODO: add response length
     sequence_score = batch.batch["token_level_scores"].sum(-1)
     sequence_reward = batch.batch["token_level_rewards"].sum(-1)
     status_list = batch.non_tensor_batch["status"]
+    #? figure out how these come about
+    rewards_for_idk_list: list[float] = 
 
     advantages = batch.batch["advantages"]
     returns = batch.batch["returns"]
     # Count number of 0.5s in sequence_score and calculate average
     # idks = torch.logical_and(sequence_score > 0.2, sequence_score < 0.9).float().mean().item()
     # TODO instead of a number, replace with the status symbol
-    idks = (
-        np.count_nonzero(status_list == 3) / len(status_list)
+    idk_ratio = (
+        np.count_nonzero(status_list == MathStatus.IDK) / len(status_list)
+        if len(status_list) > 0
+        else 0.0
+    )
+    correct_ratio = (
+        np.count_nonzero(status_list == MathStatus.RIGHT) / len(status_list)
+        if len(status_list) > 0
+        else 0.0
+    )
+    wrong_ans_good_format_ratio = (
+        np.count_nonzero(status_list == MathStatus.WRONG_ANS_GOOD_FORMAT) / len(status_list)
+        if len(status_list) > 0
+        else 0.0
+    )
+    bad_format_ratio = (
+        np.count_nonzero(status_list == MathStatus.BAD_FORMAT) / len(status_list)
         if len(status_list) > 0
         else 0.0
     )
@@ -243,44 +263,46 @@ def compute_data_metrics(batch, is_validate, use_critic=True):
         return_diff_var = torch.var(valid_returns - valid_values)
         return_var = torch.var(valid_returns)
 
-    metrics = {
-        "critic/idk_ratio": idks,
-        # "critic/wrong_and_inconfident": wrong_and_inconfident,
-        # "critic/wrong_and_confident": wrong_and_confident,
-        # "critic/right_and_inconfident": right_and_inconfident,
-        # "critic/right_and_confident": right_and_confident,
+    #? starting from the end -- what metrics do I want to see
+    _metrics_old = {
+        "train/idk_ratio": idk_ratio,
+        "train/correct_ratio": correct_ratio,
+        "train/wrong_ans_good_format_ratio": wrong_ans_good_format_ratio,
+        "train/bad_format_ratio": bad_format_ratio,
+ 
         # score
-        "critic/score/mean": torch.mean(sequence_score).detach().item(),
-        "critic/score/max": torch.max(sequence_score).detach().item(),
-        "critic/score/min": torch.min(sequence_score).detach().item(),
+        "train/score/mean": torch.mean(sequence_score).detach().item(),
+        "train/score/max": torch.max(sequence_score).detach().item(),
+        "train/score/min": torch.min(sequence_score).detach().item(),
         # reward
-        "critic/rewards/mean": torch.mean(sequence_reward).detach().item(),
-        "critic/rewards/max": torch.max(sequence_reward).detach().item(),
-        "critic/rewards/min": torch.min(sequence_reward).detach().item(),
+        "train/rewards/mean": torch.mean(sequence_reward).detach().item(),
+        "train/rewards/max": torch.max(sequence_reward).detach().item(),
+        "train/rewards/min": torch.min(sequence_reward).detach().item(),
         # adv
-        "critic/advantages/mean": torch.mean(valid_adv).detach().item(),
-        "critic/advantages/max": torch.max(valid_adv).detach().item(),
-        "critic/advantages/min": torch.min(valid_adv).detach().item(),
+        "train/advantages/mean": torch.mean(valid_adv).detach().item(),
+        "train/advantages/max": torch.max(valid_adv).detach().item(),
+        "train/advantages/min": torch.min(valid_adv).detach().item(),
         # returns
-        "critic/returns/mean": torch.mean(valid_returns).detach().item(),
-        "critic/returns/max": torch.max(valid_returns).detach().item(),
-        "critic/returns/min": torch.min(valid_returns).detach().item(),
+        "train/returns/mean": torch.mean(valid_returns).detach().item(),
+        "train/returns/max": torch.max(valid_returns).detach().item(),
+        "train/returns/min": torch.min(valid_returns).detach().item(),
         # ? why this crazy pattern?
-        **(
-            {
-                # values
-                "critic/values/mean": torch.mean(valid_values).detach().item(),
-                "critic/values/max": torch.max(valid_values).detach().item(),
-                "critic/values/min": torch.min(valid_values).detach().item(),
-                # vf explained var
-                "critic/vf_explained_var": (1.0 - return_diff_var / (return_var + 1e-5))
-                .detach()
-                .item(),
-            }
-            if use_critic
-            else {}
-        ),
-        # response length
+        # **(
+        #     {
+        #         # values
+        #         #? what does this do? 
+        #         "train/values/mean": torch.mean(valid_values).detach().item(),
+        #         "train/values/max": torch.max(valid_values).detach().item(),
+        #         "train/values/min": torch.min(valid_values).detach().item(),
+        #         # vf explained var
+        #         "train/vf_explained_var": (1.0 - return_diff_var / (return_var + 1e-5))
+        #         .detach()
+        #         .item(),
+        #     }
+        #     if use_critic
+        #     else {}
+        # ),
+        # # response length
         "response_length/mean": torch.mean(response_length).detach().item(),
         "response_length/max": torch.max(response_length).detach().item(),
         "response_length/min": torch.min(response_length).detach().item(),
@@ -800,7 +822,7 @@ class RayPPOTrainer(object):
                 timing_raw = {}
 
                 batch: DataProto = DataProto.from_single_dict(batch_dict)
-
+                breakpoint()
                 # pop those keys for generation
                 gen_batch = batch.pop(
                     batch_keys=["input_ids", "attention_mask", "position_ids"]
@@ -825,16 +847,18 @@ class RayPPOTrainer(object):
                     batch = batch.union(gen_batch_output)
 
                     # balance the number of valid tokens on each dp rank.
-                    # Note that this breaks the order of data inside the batch.
+                    #! Note that this breaks the order of data inside the batch.
                     # Please take care when you implement group based adv computation such as GRPO and rloo
                     self._balance_batch(batch, metrics=metrics)
 
                     # compute global_valid tokens
+                    #? what is this? 
                     batch.meta_info["global_token_num"] = torch.sum(
                         batch.batch["attention_mask"], dim=-1
                     ).tolist()
 
                     if self.use_reference_policy:
+                        assert False, "not expecting to self.use_reference_policy? Are we using any KL regularization?"
                         # compute reference log_prob
                         with _timer("ref", timing_raw):
                             ref_log_prob = self.ref_policy_wg.compute_ref_log_prob(
@@ -844,6 +868,7 @@ class RayPPOTrainer(object):
 
                     # compute values
                     if self.use_critic:
+                        assert False, "not using critic afaik"
                         with _timer("values", timing_raw):
                             values = self.critic_wg.compute_values(batch)
                             batch = batch.union(values)
@@ -857,12 +882,10 @@ class RayPPOTrainer(object):
                             reward_tensor = self.rm_wg.compute_rm_score(batch)
                             batch = batch.union(reward_tensor)
 
-                        # we combine with rule-based rm
-                        # breakpoint()
-                        # TODO will need to modify
-                        reward_tensor, status_list = self.reward_fn(batch)
+                        reward_fn_ret : dict = self.reward_fn(batch)
 
-                        # TODO also add potential for more random data that we might choose to output after
+                        #! can retrieve rest of variable from reward_fn_ret dictionary
+                        #TODO change to the names I have
                         batch.batch["token_level_scores"] = reward_tensor
                         batch.non_tensor_batch["status"] = np.array(
                             status_list, dtype=object
@@ -892,6 +915,7 @@ class RayPPOTrainer(object):
 
                     # update critic
                     if self.use_critic:
+                        assert False, "not expecting to use critic"
                         with _timer("update_critic", timing_raw):
                             critic_output = self.critic_wg.update_critic(batch)
                         critic_output_metrics = reduce_metrics(
@@ -901,6 +925,7 @@ class RayPPOTrainer(object):
 
                     # implement critic warmup
                     if self.config.trainer.critic_warmup <= self.global_steps:
+                        assert False, "not expecting to use critic"
                         # update actor
                         with _timer("update_actor", timing_raw):
                             actor_output = self.actor_rollout_wg.update_actor(batch)
@@ -915,9 +940,10 @@ class RayPPOTrainer(object):
                         and self.config.trainer.test_freq > 0
                         and self.global_steps % self.config.trainer.test_freq == 0
                     ):
-                        with _timer("testing", timing_raw):
+                        with _timer("validation", timing_raw):
                             val_metrics: dict = self._validate()
                         metrics.update(val_metrics)
+                        #? what do we do with the metrics once updated? ok, we finally log the metrics for the entire iteration -- so that's good
 
                     if (
                         self.config.trainer.save_freq > 0
