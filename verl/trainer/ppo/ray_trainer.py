@@ -134,6 +134,7 @@ def compute_advantage(data: DataProto, adv_estimator, gamma=1.0, lam=1.0, num_re
     # prepare response group
     # TODO: add other ways to estimate advantages
     if adv_estimator == "gae":
+        print("MATAN: not expecting gae to be running")
         values = data.batch["values"]
         responses = data.batch["responses"]
         response_length = responses.size(-1)
@@ -188,7 +189,23 @@ def _compute_response_info(batch):
     )
 
 
-def compute_data_metrics(batch, use_critic=True):
+def compute_data_metrics(batch, is_validate, use_critic=True):
+    """
+    the standard function to compute metrics from all the data returned from a single PPO iteration.
+
+    This function is either called from `fit` or from `_validate`.
+    Any computation from the data returned by `reward_fn` (of `RewardManager` type) should be processed in this function.
+    `RewardManager` takes in the raw token level responses and assignes each response a reward.
+    logging is then taken care of by
+    ```
+    metrics.update(
+                    compute_timing_metrics(batch=batch, timing_raw=timing_raw)
+                )
+
+                logger.log(data=metrics, step=self.global_steps)
+    ```
+    """
+
     # TODO: add response length
     sequence_score = batch.batch["token_level_scores"].sum(-1)
     sequence_reward = batch.batch["token_level_rewards"].sum(-1)
@@ -198,29 +215,9 @@ def compute_data_metrics(batch, use_critic=True):
     returns = batch.batch["returns"]
     # Count number of 0.5s in sequence_score and calculate average
     # idks = torch.logical_and(sequence_score > 0.2, sequence_score < 0.9).float().mean().item()
+    # TODO instead of a number, replace with the status symbol
     idks = (
         np.count_nonzero(status_list == 3) / len(status_list)
-        if len(status_list) > 0
-        else 0.0
-    )
-
-    wrong_and_inconfident = (
-        np.count_nonzero(status_list == 4) / len(status_list)
-        if len(status_list) > 0
-        else 0.0
-    )
-    wrong_and_confident = (
-        np.count_nonzero(status_list == 5) / len(status_list)
-        if len(status_list) > 0
-        else 0.0
-    )
-    right_and_inconfident = (
-        np.count_nonzero(status_list == 6) / len(status_list)
-        if len(status_list) > 0
-        else 0.0
-    )
-    right_and_confident = (
-        np.count_nonzero(status_list == 7) / len(status_list)
         if len(status_list) > 0
         else 0.0
     )
@@ -240,6 +237,7 @@ def compute_data_metrics(batch, use_critic=True):
     valid_returns = torch.masked_select(returns, response_mask)
 
     if use_critic:
+        # ? what does this do?
         values = batch.batch["values"]
         valid_values = torch.masked_select(values, response_mask)
         return_diff_var = torch.var(valid_returns - valid_values)
@@ -247,10 +245,10 @@ def compute_data_metrics(batch, use_critic=True):
 
     metrics = {
         "critic/idk_ratio": idks,
-        "critic/wrong_and_inconfident": wrong_and_inconfident,
-        "critic/wrong_and_confident": wrong_and_confident,
-        "critic/right_and_inconfident": right_and_inconfident,
-        "critic/right_and_confident": right_and_confident,
+        # "critic/wrong_and_inconfident": wrong_and_inconfident,
+        # "critic/wrong_and_confident": wrong_and_confident,
+        # "critic/right_and_inconfident": right_and_inconfident,
+        # "critic/right_and_confident": right_and_confident,
         # score
         "critic/score/mean": torch.mean(sequence_score).detach().item(),
         "critic/score/max": torch.max(sequence_score).detach().item(),
@@ -267,6 +265,7 @@ def compute_data_metrics(batch, use_critic=True):
         "critic/returns/mean": torch.mean(valid_returns).detach().item(),
         "critic/returns/max": torch.max(valid_returns).detach().item(),
         "critic/returns/min": torch.min(valid_returns).detach().item(),
+        # ? why this crazy pattern?
         **(
             {
                 # values
@@ -463,11 +462,13 @@ class RayPPOTrainer(object):
         reward_tensor_lst = []
         status_lst = []
         data_source_lst = []
+        running_acc_lst = []
         for test_data in self.val_dataloader:
             test_batch = DataProto.from_single_dict(test_data)
             # test_batch = test_batch.to('cuda')
 
             # we only do validation on rule-based rm
+            # ? we are doing rule-based RM so we expect it to work
             if (
                 self.config.reward_model.enable
                 and test_batch[0].non_tensor_batch["reward_model"]["style"] == "model"
@@ -502,13 +503,14 @@ class RayPPOTrainer(object):
 
             # evaluate using reward_function
             # for certain reward function (e.g. sandbox), the generation can overlap with reward
-            reward_tensor, status_list = self.val_reward_fn(
+            breakpoint()
+            # TODO add cur_idk_reward
+            reward_tensor, status_list, running_acc = self.val_reward_fn(
                 test_batch
-            )  # ? what is val_reward_fn
-            # ? I wonder if the status codes are even valid?
-            print("")
+            )  # ? val_reward_fn is getting set to the RewardManager in `main_ppo` -- so we do expect this to work
 
             reward_tensor_lst.append(reward_tensor)
+            running_acc_lst.append(running_acc)
             status_lst.extend(
                 status_list
             )  # ?who tf decided to use this horrifyingly bad syntax???
@@ -518,8 +520,9 @@ class RayPPOTrainer(object):
                 )
             )
 
+        # ? bro this is so bad `reward_tensor[i, valid_response_length - 1] = score` -- where reward_tensor is 0-s like. but do we ever use this weird setting?
         reward_tensor = (
-            torch.cat(reward_tensor_lst, dim=0).sum(-1).cpu()
+            torch.cat(reward_tensor_lst, dim=0).sum(dim=-1).cpu()
         )  # (batch_size,)
         data_sources = np.concatenate(data_source_lst, axis=0)
         # evaluate test_score based on data source
@@ -529,7 +532,15 @@ class RayPPOTrainer(object):
             if data_source not in data_source_reward:
                 data_source_reward[data_source] = []
             data_source_reward[data_source].append(reward_tensor[i].item())
+        # TODO replace this with a call to compute_data_metrics and subseq
+        """
+        metrics.update(
+                    compute_timing_metrics(batch=batch, timing_raw=timing_raw)
+                )
 
+                logger.log(data=metrics, step=self.global_steps)
+        """
+        # ? this seems like a duplicate call to update metrics?
         metric_dict = {}
         for data_source, rewards in data_source_reward.items():
             # Calculate number of idks in rewards
@@ -585,6 +596,10 @@ class RayPPOTrainer(object):
             metric_dict[f"val/idk_ratio/{data_source}"] = idk_ratio
             metric_dict[f"val/bad_format_ratio/{data_source}"] = bad_format
             metric_dict[f"val/test_score/{data_source}"] = np.mean(rewards)
+            metric_dict[f"val/running_acc/{data_source}"] = sum(running_acc_lst) / len(
+                running_acc_lst
+            )
+
             # metric_dict[f"val/wrong_and_inconfident/{data_source}"] = (
             #     wrong_and_inconfident
             # )
@@ -594,11 +609,11 @@ class RayPPOTrainer(object):
             # )
             # metric_dict[f"val/right_and_confident/{data_source}"] = right_and_confident
 
-            metric_dict[f"validation/correct_ratio"] = correct_ratio
-            metric_dict[f"validation/wrong_ratio"] = wrong_ratio
-            metric_dict[f"validation/idk_ratio"] = idk_ratio
-            metric_dict[f"validation/bad_format_ratio"] = bad_format
-            metric_dict[f"validation/test_score"] = np.mean(rewards)
+            # metric_dict[f"validation/correct_ratio"] = correct_ratio
+            # metric_dict[f"validation/wrong_ratio"] = wrong_ratio
+            # metric_dict[f"validation/idk_ratio"] = idk_ratio
+            # metric_dict[f"validation/bad_format_ratio"] = bad_format
+            # metric_dict[f"validation/test_score"] = np.mean(rewards)
             # metric_dict[f"validation/wrong_and_inconfident"] = wrong_and_inconfident
             # metric_dict[f"validation/wrong_and_confident"] = wrong_and_confident
             # metric_dict[f"validation/right_and_inconfident"] = right_and_inconfident
@@ -655,6 +670,7 @@ class RayPPOTrainer(object):
 
         # create a reward model if reward_fn is None
         if self.use_rm:
+            assert False, "not expecting to be using reward models at the moment"
             # we create a RM here
             resource_pool = self.resource_pool_manager.get_resource_pool(
                 Role.RewardModel
@@ -765,7 +781,6 @@ class RayPPOTrainer(object):
         self.global_steps = 0
 
         # perform validation before training
-        # currently, we only support validation using the reward_function.
         if self.val_reward_fn is not None and self.config.trainer.get(
             "val_before_train", True
         ):
@@ -844,7 +859,10 @@ class RayPPOTrainer(object):
 
                         # we combine with rule-based rm
                         # breakpoint()
+                        # TODO will need to modify
                         reward_tensor, status_list = self.reward_fn(batch)
+
+                        # TODO also add potential for more random data that we might choose to output after
                         batch.batch["token_level_scores"] = reward_tensor
                         batch.non_tensor_batch["status"] = np.array(
                             status_list, dtype=object
@@ -891,7 +909,7 @@ class RayPPOTrainer(object):
                         )
                         metrics.update(actor_output_metrics)
 
-                    # validate
+                    # validate in training loop
                     if (
                         self.val_reward_fn is not None
                         and self.config.trainer.test_freq > 0
@@ -916,7 +934,6 @@ class RayPPOTrainer(object):
                     compute_timing_metrics(batch=batch, timing_raw=timing_raw)
                 )
 
-                # TODO: make a canonical logger that supports various backend
                 logger.log(data=metrics, step=self.global_steps)
 
                 self.global_steps += 1

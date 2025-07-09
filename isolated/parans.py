@@ -4,7 +4,7 @@ import typing
 
 class MathStatus(Enum):
     BAD_FORMAT = 0
-    WRONG = 1
+    WRONG_ANS_GOOD_FORMAT = 1
     RIGHT = 2
     IDK = 3
 

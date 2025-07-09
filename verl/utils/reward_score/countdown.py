@@ -12,11 +12,11 @@ import operator
 
 class CountdownStatus:
     BAD_FORMAT = 0
-    WRONG = 1
+    WRONG_ANS_GOOD_FORMAT = 1
     RIGHT = 2
     IDK = 3
-    WRONG_AND_INCONFIDENT = 4
-    WRONG_AND_CONFIDENT = 5
+    WRONG_ANS_GOOD_FORMAT_AND_INCONFIDENT = 4
+    WRONG_ANS_GOOD_FORMAT_AND_CONFIDENT = 5
     RIGHT_AND_INCONFIDENT = 6
     RIGHT_AND_CONFIDENT = 7
 
@@ -291,9 +291,15 @@ def compute_score_idk_and_answer(
             if do_print:
                 print(f"Wrong result: equation = {result}, target = {target}")
             if confidence == "Sure":
-                return incorrect_and_confident, CountdownStatus.WRONG_AND_CONFIDENT
+                return (
+                    incorrect_and_confident,
+                    CountdownStatus.WRONG_ANS_GOOD_FORMAT_AND_CONFIDENT,
+                )
             else:
-                return incorrect_and_inconfident, CountdownStatus.WRONG_AND_INCONFIDENT
+                return (
+                    incorrect_and_inconfident,
+                    CountdownStatus.WRONG_ANS_GOOD_FORMAT_AND_INCONFIDENT,
+                )
     except:
         if do_print:
             print(f"Error evaluating equation")
@@ -353,7 +359,7 @@ def compute_score_idk_rs(
     if not validate_equation(equation, numbers):
         if do_print:
             print(f"Invalid equation")
-        return format_score, CountdownStatus.WRONG
+        return format_score, CountdownStatus.WRONG_ANS_GOOD_FORMAT
 
     # Evaluate equation
     try:
@@ -361,7 +367,7 @@ def compute_score_idk_rs(
         if result is None:
             if do_print:
                 print(f"Could not evaluate equation")
-            return format_score, CountdownStatus.WRONG
+            return format_score, CountdownStatus.WRONG_ANS_GOOD_FORMAT
 
         if abs(result - target) < 1e-5:  # Account for floating point precision
             running_acc = ema_coeff * running_acc + (1 - ema_coeff) * score
@@ -373,8 +379,8 @@ def compute_score_idk_rs(
             running_acc = ema_coeff * running_acc + (1 - ema_coeff) * format_score
             if do_print:
                 print(f"Wrong result: equation = {result}, target = {target}")
-            return format_score, CountdownStatus.WRONG
+            return format_score, CountdownStatus.WRONG_ANS_GOOD_FORMAT
     except:
         if do_print:
             print(f"Error evaluating equation")
-        return format_score, CountdownStatus.WRONG
+        return format_score, CountdownStatus.WRONG_ANS_GOOD_FORMAT

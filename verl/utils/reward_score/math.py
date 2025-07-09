@@ -14,15 +14,17 @@
 # Adapted from https://github.com/EleutherAI/lm-evaluation-harness/blob/main/lm_eval/tasks/hendrycks_math/utils.py
 import random
 import re
-from typing import Tuple
+from typing import Tuple, Final
 from enum import Enum
 
 
 class MathStatus(Enum):
     BAD_FORMAT = 0
-    WRONG = 1
+    WRONG_ANS_GOOD_FORMAT = 1
     RIGHT = 2
     IDK = 3
+
+
 
 
 def _ORIGINAL_extract_solution(solution_str):
@@ -69,7 +71,7 @@ def _ORIGINAL_extract_solution(solution_str):
 #                 return retval, MathStatus.RIGHT
 #             else:
 #                 retval = 0.1  # format reward
-#                 return retval, MathStatus.WRONG
+#                 return retval, MathStatus.WRONG_ANS_GOOD_FORMAT_ANS_GOOD_FORMAT
 #     except Exception as e:
 #         print(e)
 
@@ -131,18 +133,24 @@ def extract_solution(solution_str: str) -> None | str:
 running_acc = 0.5
 ema_coeff = 0.999
 idk_min_reward = 0.1  # the real reward is the base accumlator
-correct_reward = 1
-wrong_answer_right_format_reward = 0.1
-wrong_format_reward = 0
+reward_dict = {
+    MathStatus.RIGHT: 1,
+    MathStatus.WRONG_ANS_GOOD_FORMAT: 0.1,
+    MathStatus.BAD_FORMAT: 0,
+}
 
 
 def compute_score_idk_rs(
     solution_str: str, ground_truth: str, idk_max_reward=0.5
-) -> Tuple[float, Enum]:
+) -> dict #Tuple[float, Enum, float]:
     """
     solution_str: only the model's response decoded to str
     ground_truth: the ground truth answer to the question given as a str
     idk_max_reward: the maximum reward we will give for idk (starts at running_acc as above and converges to the model current reward)
+    
+    Can return dict with a bunch of stuff and we check manually what keys are there -- required is `reward_float`. 
+    
+   
     """
     global running_acc, ema_coeff
     retval = 0.0
@@ -154,36 +162,46 @@ def compute_score_idk_rs(
     try:
         extracted_solution = extract_solution(solution_str)
         if extracted_solution is None:
-            retval = wrong_format_reward
-            return (
-                retval,
-                MathStatus.BAD_FORMAT,
-            )  # ?make sure that the caller expctes a tuple
+            ret : Final[dict] = {
+                "reward_float" : reward_dict[MathStatus.BAD_FORMAT],
+                "reward_class" : MathStatus.BAD_FORMAT,
+                "cur_reward_for_idk": max(idk_min_reward, min(running_acc, idk_max_reward)),
+              }  # ?make sure that the caller expctes a tuple
 
         elif extracted_solution == "I don't know":
             running_acc = ema_coeff * running_acc + (1 - ema_coeff) * idk_min_reward
             print(
                 f"IDK detected, returning idk_reward: {min(running_acc, idk_max_reward)}, running_acc: {running_acc}"
             )
-            return min(running_acc, idk_max_reward), MathStatus.IDK
+            ret : Final[dict] = {
+                "reward_float" : max(idk_min_reward, min(running_acc, idk_max_reward)),
+                "reward_class" : MathStatus.IDK,
+                "cur_reward_for_idk": max(idk_min_reward, min(running_acc, idk_max_reward)),
+            }  # ?make sure that the caller expctes a tuple
+
         # if extracted_solution is not None:
         elif is_equiv(extracted_solution, ground_truth):
             running_acc = ema_coeff * running_acc + (1 - ema_coeff) * correct_reward
-            retval = 1.0
-            return retval, MathStatus.RIGHT
+            ret : Final[dict] = {
+                "reward_float" :reward_dict[MathStatus.RIGHT],
+                "reward_class" : MathStatus.RIGHT,
+                "cur_reward_for_idk": max(idk_min_reward, min(running_acc, idk_max_reward)),
+            }  # 
+        # return val is wrong
         else:
             running_acc = (
                 ema_coeff * running_acc
-                + (1 - ema_coeff) * wrong_answer_right_format_reward
+                + (1 - ema_coeff) * reward_dict[MathStatus.WRONG_ANS_GOOD_FORMAT]
             )
-            retval = 0.1
-            return retval, MathStatus.WRONG
-
+            ret : Final[dict] = {
+                "reward_float" :reward_dict[MathStatus.WRONG_ANS_GOOD_FORMAT],
+                "reward_class" : MathStatus.RIGHT,
+                "cur_reward_for_idk": min(running_acc, idk_max_reward),
+            }  
     except Exception as e:
         print(e)
 
-    return retval, MathStatus.BAD_FORMAT
-
+    return ret
 
 def is_equiv(str1: str, str2: str, verbose=False):
     if str1 is None and str2 is None:

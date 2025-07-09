@@ -17,16 +17,20 @@ Note that we don't combine the main with ray_trainer as ray_trainer is used by o
 
 from verl import DataProto
 import torch
-
-# ?matan added
-torch.set_default_dtype(torch.bfloat16)
-torch.set_default_device("cuda")
 from verl.utils.reward_score import gsm8k, math, multiply, countdown
 from verl.trainer.ppo.ray_trainer import RayPPOTrainer
 import ray
 
 
-def _select_rm_score_fn(data_source):
+# ?matan added
+torch.set_default_dtype(torch.bfloat16)
+torch.set_default_device("cuda")
+from collections import defaultdict
+from collections.abc import Callable
+from typing import Any
+
+
+def _select_rm_score_fn(data_source) -> Callable[..., dict]:
     # ?couldn't figure out where data_source was coming from and what flags to set so I just set this manually
     data_source = "lighteval/MATH_idk"
     if data_source == "openai/gsm8k":
@@ -70,7 +74,7 @@ class RewardManager:
         reward_tensor = torch.zeros_like(data.batch["responses"], dtype=torch.float32)
 
         already_print_data_sources = {}
-        status_list = []
+        compute_score_fn_returns = defaultdict(list)
         for i in range(len(data)):
             data_item = data[i]  # DataProtoItem
 
@@ -106,14 +110,20 @@ class RewardManager:
             data_source = data_item.non_tensor_batch["data_source"]
             compute_score_fn = _select_rm_score_fn(data_source)
             # breakpoint()
-            score = compute_score_fn(
+            compute_score_fn_return: dict = compute_score_fn(
                 solution_str=response_str, ground_truth=ground_truth
             )
-            if type(score) is tuple:
-                score, status = score
-                status_list.append(status)
+            assert compute_score_fn_return is dict, (
+                "I changed the interface so instead of returning a tuple with varying number of params, we return a dict. Usually, each element of the dict will be an integer-ish type representing a particular metric of the response"
+            )
+            for k, v in compute_score_fn_return.items():
+                if k not in compute_score_fn_returns:
+                    compute_score_fn_return[k] = []
+                compute_score_fn_returns[k].append(v)
+            # TODO this is bad -- instead return dict
 
             # ? this error is false becuase tuple was handled above
+            # TODO why such weird indexing?
             reward_tensor[i, valid_response_length - 1] = score
 
             if data_source not in already_print_data_sources:
@@ -122,8 +132,8 @@ class RewardManager:
             if already_print_data_sources[data_source] < self.num_examine:
                 already_print_data_sources[data_source] += 1
                 print(concat_prompt_and_response_str)
-
-        return reward_tensor, status_list
+        # TODO this is bad -- instead return dict
+        return reward_tensor, status_list, sum(running_accs) / len(running_accs)
 
 
 import ray
