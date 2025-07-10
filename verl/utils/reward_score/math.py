@@ -25,8 +25,6 @@ class MathStatus(Enum):
     IDK = 3
 
 
-
-
 def _ORIGINAL_extract_solution(solution_str):
     # ? this is the original extract solution but does not fit the prompt that we use (from `math_dataset`)
     # ? "Let's think step by step and output the final answer within \\boxed{}. If you're unsure of how to solve the problem, just say \\boxed{I don't know}"
@@ -96,7 +94,7 @@ def extract_solution(solution_str: str) -> None | str:
         X = ""
         pars_stack: list = []
 
-        if del_idx is not -1:  # there was at least one instance
+        if del_idx != -1:  # there was at least one instance
             for char in solution_str[del_idx + len(DELIMITER) :]:
                 # is char open par?
                 if char in par_mapping.keys():
@@ -115,7 +113,7 @@ def extract_solution(solution_str: str) -> None | str:
 
                     # closing a valid par (pars_stack has 1 element due to the above check)
                     elif par_mapping[pars_stack[-1]] == char:
-                        pass
+                        pars_stack.pop()
 
                 # its just a regular char
                 else:
@@ -142,65 +140,77 @@ reward_dict = {
 
 def compute_score_idk_rs(
     solution_str: str, ground_truth: str, idk_max_reward=0.5
-) -> dict #Tuple[float, Enum, float]:
+) -> dict:  # Tuple[float, Enum, float]:
     """
     solution_str: only the model's response decoded to str
     ground_truth: the ground truth answer to the question given as a str
     idk_max_reward: the maximum reward we will give for idk (starts at running_acc as above and converges to the model current reward)
-    
-    Can return dict with a bunch of stuff and we check manually what keys are there -- required is `reward_float`. 
-    
-   
+
+    Can return dict with a bunch of stuff and we check manually what keys are there -- required is `reward_float`.
+
+
     """
-    #TODO check that our reward shipping makes sense
+    # TODO check that our reward shipping makes sense
     global running_acc, ema_coeff
     try:
         extracted_solution = extract_solution(solution_str)
         if extracted_solution is None:
-            ret : Final[dict] = {
-                "reward_float" : reward_dict[MathStatus.BAD_FORMAT],
-                "reward_class" : MathStatus.BAD_FORMAT,
-                "cur_reward_for_idk": max(idk_min_reward, min(running_acc, idk_max_reward)),
-              }  # ?make sure that the caller expctes a tuple
+            ret: Final[dict] = {
+                "reward_float": reward_dict[MathStatus.BAD_FORMAT],
+                "reward_status_code": MathStatus.BAD_FORMAT,
+                "cur_reward_for_idk": max(
+                    idk_min_reward, min(running_acc, idk_max_reward)
+                ),
+            }  # ?make sure that the caller expctes a tuple
 
         elif extracted_solution == "I don't know":
             running_acc = ema_coeff * running_acc + (1 - ema_coeff) * idk_min_reward
             print(
                 f"IDK detected, returning idk_reward: {min(running_acc, idk_max_reward)}, running_acc: {running_acc}"
             )
-            ret : Final[dict] = {
-                "reward_float" : max(idk_min_reward, min(running_acc, idk_max_reward)),
-                "reward_class" : MathStatus.IDK,
-                "cur_reward_for_idk": max(idk_min_reward, min(running_acc, idk_max_reward)),
+            ret: Final[dict] = {
+                "reward_float": max(idk_min_reward, min(running_acc, idk_max_reward)),
+                "reward_status_code": MathStatus.IDK,
+                "cur_reward_for_idk": max(
+                    idk_min_reward, min(running_acc, idk_max_reward)
+                ),
             }  # ?make sure that the caller expctes a tuple
 
         # if extracted_solution is not None:
         elif is_equiv(extracted_solution, ground_truth):
-            running_acc = ema_coeff * running_acc + (1 - ema_coeff) *reward_dict[MathStatus.RIGHT] 
-            ret : Final[dict] = {
-                "reward_float" :reward_dict[MathStatus.RIGHT],
-                "reward_class" : MathStatus.RIGHT,
-                "cur_reward_for_idk": max(idk_min_reward, min(running_acc, idk_max_reward)),
-            }  # 
+            running_acc = (
+                ema_coeff * running_acc
+                + (1 - ema_coeff) * reward_dict[MathStatus.RIGHT]
+            )
+            ret: Final[dict] = {
+                "reward_float": reward_dict[MathStatus.RIGHT],
+                "reward_status_code": MathStatus.RIGHT,
+                "cur_reward_for_idk": max(
+                    idk_min_reward, min(running_acc, idk_max_reward)
+                ),
+            }  #
         # return val is wrong
         else:
             running_acc = (
                 ema_coeff * running_acc
                 + (1 - ema_coeff) * reward_dict[MathStatus.WRONG_ANS_GOOD_FORMAT]
             )
-            ret : Final[dict] = {
-                "reward_float" :reward_dict[MathStatus.WRONG_ANS_GOOD_FORMAT],
-                "reward_class" : MathStatus.RIGHT,
+            ret: Final[dict] = {
+                "reward_float": reward_dict[MathStatus.WRONG_ANS_GOOD_FORMAT],
+                "reward_status_code": MathStatus.RIGHT,
                 "cur_reward_for_idk": min(running_acc, idk_max_reward),
-            }  
-        
+            }
+
     except Exception as e:
         print(e)
     to_print = random.randint(1, 64) == 1
     if to_print:
-        print(f"OCCUSIONAL QUALITY PRINT: \n\n {solution_str=} \n {extracted_solution=} \n {ret=}")
-    
+        print(
+            f"OCCUSIONAL QUALITY PRINT: \n\n {solution_str=} \n {extracted_solution=} \n {ret=}"
+        )
+
     return ret
+
 
 def is_equiv(str1: str, str2: str, verbose=False):
     if str1 is None and str2 is None:

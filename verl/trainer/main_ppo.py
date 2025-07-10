@@ -71,8 +71,6 @@ class RewardManager:
         if "rm_scores" in data.batch.keys():
             return data.batch["rm_scores"]
 
-        reward_tensor = torch.zeros_like(data.batch["responses"], dtype=torch.float32)
-
         already_print_data_sources = {}
         compute_score_fn_returns = defaultdict(list)
         for i in range(len(data)):
@@ -113,21 +111,24 @@ class RewardManager:
             compute_score_fn_return: dict = compute_score_fn(
                 solution_str=response_str, ground_truth=ground_truth
             )
-            assert compute_score_fn_return is dict, (
-                "Matan: I changed the interface so instead of returning a tuple with varying number of params, we return a dict. Usually, each element of the dict will be an integer-ish type representing a particular metric of the response"
+            assert isinstance(compute_score_fn_return, dict), (
+                f"Matan: I changed the interface so instead of returning a tuple with varying number of params, we return a dict. Usually, each element of the dict will be an integer-ish type representing a particular metric of the response {type(compute_score_fn_return)=}"
             )
             for k, v in compute_score_fn_return.items():
-                if k not in compute_score_fn_returns:
-                    compute_score_fn_return[k] = []
-                compute_score_fn_returns[k].append(v)
+                # if k not in compute_score_fn_returns:
+                #     compute_score_fn_return[k] = []
+                if isinstance(v, list):
+                    compute_score_fn_returns[k].extend(v)
+                else:
+                    compute_score_fn_returns[k].append(v)
 
             if data_source not in already_print_data_sources:
                 already_print_data_sources[data_source] = 0
 
             if already_print_data_sources[data_source] < self.num_examine:
-                assert False, (
-                    f"I don't know what's printing data sources? {self.num_examine=} {already_print_data_sources=} {data_source=}"
-                )
+                # assert False, (
+                #     f"I don't know what's printing data sources? {self.num_examine=} {already_print_data_sources=} {data_source=}"
+                # )
                 already_print_data_sources[data_source] += 1
                 print(concat_prompt_and_response_str)
         return compute_score_fn_returns
@@ -142,14 +143,16 @@ def main(config):
     if not ray.is_initialized():
         # this is for local ray cluster
         ray.init(
+            dashboard_host="0.0.0.0",
+            dashboard_port=8265,
             runtime_env={
                 "env_vars": {
                     "TOKENIZERS_PARALLELISM": "true",
                     "NCCL_DEBUG": "WARN",
-                    "RAY_DEBUG": "legacy",
+                    "RAY_DEBUG": "1",
+                    "RAY_DEBUG_POST_MORTEM": "1",  # Add this for exception debugging
                 }
             },
-            num_cpus=8,
         )
 
     ray.get(main_task.remote(config))
@@ -168,7 +171,9 @@ def main_task(config):
         OmegaConf.to_container(config, resolve=True)
     )  # resolve=True will eval symbol values
     OmegaConf.resolve(config)
-
+    print("About to hit breakpoint in main_task")
+    # breakpoint()  # Test this first
+    print("Continuing after breakpoint")
     # download the checkpoint from hdfs
     local_path = copy_local_path_from_hdfs(config.actor_rollout_ref.model.path)
 
@@ -248,6 +253,7 @@ def main_task(config):
         val_reward_fn=val_reward_fn,
     )
     trainer.init_workers()
+    breakpoint()
     trainer.fit()
 
 

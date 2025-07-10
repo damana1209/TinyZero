@@ -16,6 +16,8 @@ FSDP PPO Trainer with Ray-based single controller.
 This trainer supports model-agonistic model initialization with huggingface
 """
 
+from collections import defaultdict
+import math
 import os
 import uuid
 from contextlib import contextmanager
@@ -42,7 +44,8 @@ from verl.utils.seqlen_balancing import (
     get_seqlen_balanced_partitions,
     log_seqlen_unbalance,
 )
-#? matan
+
+# ? matan
 from verl.utils.reward_score.math import MathStatus
 
 WorkerType = Type[Worker]
@@ -100,7 +103,7 @@ def apply_kl_penalty(
 ):
     responses = data.batch["responses"]
     response_length = responses.size(1)
-    token_level_scores = data.batch["token_level_scores"]
+    token_level_scores: torch.Tensor = data.batch["token_level_scores"]
     batch_size = data.batch.batch_size[0]
     attention_mask = data.batch["attention_mask"]
     response_mask = attention_mask[:, -response_length:]
@@ -116,9 +119,19 @@ def apply_kl_penalty(
         beta = kl_ctrl.value
     else:
         beta = 0
-        kld = torch.zeros_like(response_mask, dtype=torch.float32)
+        kld = torch.zeros_like(token_level_scores, dtype=torch.float32)
 
-    token_level_rewards = token_level_scores - beta * kld
+    print(
+        f"MATAN SIZE: {responses.shape=} {token_level_scores.shape=}, {data.batch['old_log_probs'].shape=} {data.batch['ref_log_prob'].shape=}, {kld.shape=}"
+    )
+
+    # ?what shape do we expect here? we are going to have a reward for every position that we train, which in this case is 1024 (the max) so
+    token_level_rewards = (
+        token_level_scores.unsqueeze(1).expand(
+            (token_level_scores.shape[0], kld.shape[-1])
+        )
+        - beta * kld
+    )
 
     current_kl = masked_mean(kld, mask=response_mask, axis=-1)  # average over sequence
     current_kl = torch.mean(current_kl, dim=0).item()
@@ -136,7 +149,7 @@ def compute_advantage(data: DataProto, adv_estimator, gamma=1.0, lam=1.0, num_re
     # prepare response group
     # TODO: add other ways to estimate advantages
     if adv_estimator == "gae":
-        print("MATAN: not expecting gae to be running")
+        # print("MATAN: not expecting gae to be running")
         values = data.batch["values"]
         responses = data.batch["responses"]
         response_length = responses.size(-1)
@@ -190,7 +203,9 @@ def _compute_response_info(batch):
         response_length=response_length,
     )
 
-def _matan_compute_data_metrics
+
+# def _matan_compute_data_metrics
+
 
 def compute_data_metrics(batch, is_validate, use_critic=True):
     """
@@ -209,18 +224,22 @@ def compute_data_metrics(batch, is_validate, use_critic=True):
     ```
     """
     # assert False, "I wrote `_matan_data_metrics` because I had relatively low confidence in "
-    # TODO: add response length
-    sequence_score = batch.batch["token_level_scores"].sum(-1)
+    # TODO: add response length --CHANGE THIS FUNCTION TO THE WAY THESE ARE REFERED TO
+    sequence_score: torch.Tensor = batch.batch["token_level_scores"].sum(-1)
     sequence_reward = batch.batch["token_level_rewards"].sum(-1)
-    status_list = batch.non_tensor_batch["status"]
-    #? figure out how these come about
-    rewards_for_idk_list: list[float] = 
+    assert sequence_score.eq(sequence_reward), (
+        "I expect these to be the same and I am not sure why they are seperete"
+    )
+    status_list = batch.non_tensor_batch["statuses"]
+    # ? figure out how these come about
+    rewards_for_idk_list = batch.non_tensor_batch["idk_rewards"]
 
     advantages = batch.batch["advantages"]
     returns = batch.batch["returns"]
     # Count number of 0.5s in sequence_score and calculate average
     # idks = torch.logical_and(sequence_score > 0.2, sequence_score < 0.9).float().mean().item()
-    # TODO instead of a number, replace with the status symbol
+    if len(status_list) == 0:
+        print("MATAN: why tf is status_list 0?")
     idk_ratio = (
         np.count_nonzero(status_list == MathStatus.IDK) / len(status_list)
         if len(status_list) > 0
@@ -232,7 +251,8 @@ def compute_data_metrics(batch, is_validate, use_critic=True):
         else 0.0
     )
     wrong_ans_good_format_ratio = (
-        np.count_nonzero(status_list == MathStatus.WRONG_ANS_GOOD_FORMAT) / len(status_list)
+        np.count_nonzero(status_list == MathStatus.WRONG_ANS_GOOD_FORMAT)
+        / len(status_list)
         if len(status_list) > 0
         else 0.0
     )
@@ -258,39 +278,44 @@ def compute_data_metrics(batch, is_validate, use_critic=True):
 
     if use_critic:
         # ? what does this do?
+        assert False, "not planning to use critc and have not validated these metrics"
         values = batch.batch["values"]
         valid_values = torch.masked_select(values, response_mask)
         return_diff_var = torch.var(valid_returns - valid_values)
         return_var = torch.var(valid_returns)
 
-    #? starting from the end -- what metrics do I want to see
-    _metrics_old = {
+    # ? starting from the end -- what metrics do I want to see
+    metrics = {
+        # ratios
         "train/idk_ratio": idk_ratio,
         "train/correct_ratio": correct_ratio,
         "train/wrong_ans_good_format_ratio": wrong_ans_good_format_ratio,
         "train/bad_format_ratio": bad_format_ratio,
- 
+        # avg idk scores
+        "train/avg_idk_reward": rewards_for_idk_list,
         # score
-        "train/score/mean": torch.mean(sequence_score).detach().item(),
-        "train/score/max": torch.max(sequence_score).detach().item(),
-        "train/score/min": torch.min(sequence_score).detach().item(),
+        "train-less-important/score/mean": torch.mean(sequence_score).detach().item(),
+        "train-less-important/score/max": torch.max(sequence_score).detach().item(),
+        "train-less-important/score/min": torch.min(sequence_score).detach().item(),
         # reward
-        "train/rewards/mean": torch.mean(sequence_reward).detach().item(),
-        "train/rewards/max": torch.max(sequence_reward).detach().item(),
-        "train/rewards/min": torch.min(sequence_reward).detach().item(),
+        "train-less-important/rewards/mean": torch.mean(sequence_reward)
+        .detach()
+        .item(),
+        "train-less-important/rewards/max": torch.max(sequence_reward).detach().item(),
+        "train-less-important/rewards/min": torch.min(sequence_reward).detach().item(),
         # adv
-        "train/advantages/mean": torch.mean(valid_adv).detach().item(),
-        "train/advantages/max": torch.max(valid_adv).detach().item(),
-        "train/advantages/min": torch.min(valid_adv).detach().item(),
+        "train-less-important/advantages/mean": torch.mean(valid_adv).detach().item(),
+        "train-less-important/advantages/max": torch.max(valid_adv).detach().item(),
+        "train-less-important/advantages/min": torch.min(valid_adv).detach().item(),
         # returns
-        "train/returns/mean": torch.mean(valid_returns).detach().item(),
-        "train/returns/max": torch.max(valid_returns).detach().item(),
-        "train/returns/min": torch.min(valid_returns).detach().item(),
+        "train-less-important/returns/mean": torch.mean(valid_returns).detach().item(),
+        "train-less-important/returns/max": torch.max(valid_returns).detach().item(),
+        "train-less-important/returns/min": torch.min(valid_returns).detach().item(),
         # ? why this crazy pattern?
         # **(
         #     {
         #         # values
-        #         #? what does this do? 
+        #         #? what does this do?
         #         "train/values/mean": torch.mean(valid_values).detach().item(),
         #         "train/values/max": torch.max(valid_values).detach().item(),
         #         "train/values/min": torch.min(valid_values).detach().item(),
@@ -371,7 +396,7 @@ class RayPPOTrainer(object):
         resource_pool_manager: ResourcePoolManager,
         ray_worker_group_cls: RayWorkerGroup = RayWorkerGroup,
         reward_fn=None,
-        val_reward_fn=None,
+        val_reward_fn=None,  # TODO we should not allow this to be None
     ):
         # assert torch.cuda.is_available(), 'cuda must be available on driver'
 
@@ -481,12 +506,15 @@ class RayPPOTrainer(object):
             self.config.critic.optim.total_training_steps = total_training_steps
 
     def _validate(self):
-        reward_tensor_lst = []
-        status_lst = []
-        data_source_lst = []
-        running_acc_lst = []
+        val_reward_fn_returns = defaultdict(list)
         for test_data in self.val_dataloader:
             test_batch = DataProto.from_single_dict(test_data)
+            """
+            (Pdb) test_batch.batch.keys()
+            _TensorDictKeysView(['prompts', 'attention_mask', 'input_ids', 'position_ids', 'responses'],
+            (Pdb) test_batch.non_tensor_batch.keys()
+            dict_keys(['answer', 'subject', 'level', 'unique_id', 'data_source', 'ability', 'reward_model', 'extra_info', 'index'])
+            """
             # test_batch = test_batch.to('cuda')
 
             # we only do validation on rule-based rm
@@ -495,6 +523,7 @@ class RayPPOTrainer(object):
                 self.config.reward_model.enable
                 and test_batch[0].non_tensor_batch["reward_model"]["style"] == "model"
             ):
+                assert False, "not expecting whatever this is"
                 return {}
 
             test_gen_batch = test_batch.pop(
@@ -512,6 +541,7 @@ class RayPPOTrainer(object):
             test_gen_batch_padded, pad_size = pad_dataproto_to_divisor(
                 test_gen_batch, self.actor_rollout_wg.world_size
             )
+            # ?pad to the context?
             test_output_gen_batch_padded = self.actor_rollout_wg.generate_sequences(
                 test_gen_batch_padded
             )
@@ -525,103 +555,81 @@ class RayPPOTrainer(object):
 
             # evaluate using reward_function
             # for certain reward function (e.g. sandbox), the generation can overlap with reward
-            breakpoint()
-            # TODO add cur_idk_reward
-            reward_tensor, status_list, running_acc = self.val_reward_fn(
-                test_batch
-            )  # ? val_reward_fn is getting set to the RewardManager in `main_ppo` -- so we do expect this to work
 
-            reward_tensor_lst.append(reward_tensor)
-            running_acc_lst.append(running_acc)
-            status_lst.extend(
-                status_list
-            )  # ?who tf decided to use this horrifyingly bad syntax???
-            data_source_lst.append(
-                test_batch.non_tensor_batch.get(
-                    "data_source", ["unknown"] * reward_tensor.shape[0]
+            val_reward_fn_return = self.val_reward_fn(test_batch)
+
+            for k, v in val_reward_fn_return.items():
+                if isinstance(v, list):
+                    val_reward_fn_returns[k].extend(v)
+                else:
+                    val_reward_fn_returns[k].append(v)
+            # reward_tensor_lst.append(reward_tensor)
+            # running_acc_lst.append(running_acc)
+            # status_lst.extend(
+            #     status_list
+
+            # reward_tensor = (
+            #     torch.cat(reward_tensor_lst, dim=0).sum(dim=-1).cpu()
+            # )  # (batch_size,)
+            # data_sources = np.concatenate(data_source_lst, axis=0)
+            # # evaluate test_score based on data source
+            # data_source_reward = {}
+            # for i in range(reward_tensor.shape[0]):
+            #     data_source = data_sources[i]
+            #     if data_source not in data_source_reward:
+            #         data_source_reward[data_source] = []
+            #     data_source_reward[data_source].append(reward_tensor[i].item())
+            metric_dict = {}
+            # for data_source, rewards in data_source_reward.items():
+            if "reward_status_code" in val_reward_fn_returns.keys():
+                status_lst = np.array(
+                    val_reward_fn_return["reward_status_code"], dtype=object
                 )
-            )
-
-        # ? bro this is so bad `reward_tensor[i, valid_response_length - 1] = score` -- where reward_tensor is 0-s like. but do we ever use this weird setting?
-        reward_tensor = (
-            torch.cat(reward_tensor_lst, dim=0).sum(dim=-1).cpu()
-        )  # (batch_size,)
-        data_sources = np.concatenate(data_source_lst, axis=0)
-        # evaluate test_score based on data source
-        data_source_reward = {}
-        for i in range(reward_tensor.shape[0]):
-            data_source = data_sources[i]
-            if data_source not in data_source_reward:
-                data_source_reward[data_source] = []
-            data_source_reward[data_source].append(reward_tensor[i].item())
-        # TODO replace this with a call to compute_data_metrics and subseq
-        """
-        metrics.update(
-                    compute_timing_metrics(batch=batch, timing_raw=timing_raw)
+                idk_ratio = (
+                    np.count_nonzero(status_lst == MathStatus.IDK) / len(status_lst)
+                    if len(status_lst) > 0
+                    else 0.0
+                )
+                correct_ratio = (
+                    np.count_nonzero(status_lst == MathStatus.RIGHT) / len(status_lst)
+                    if len(status_lst) > 0
+                    else 0.0
+                )
+                wrong_ratio = (
+                    np.count_nonzero(status_lst == MathStatus.WRONG_ANS_GOOD_FORMAT)
+                    / len(status_lst)
+                    if len(status_lst) > 0
+                    else 0.0
+                )
+                bad_format = (
+                    np.count_nonzero(status_lst == MathStatus.BAD_FORMAT)
+                    / len(status_lst)
+                    if len(status_lst) > 0
+                    else 0.0
                 )
 
-                logger.log(data=metrics, step=self.global_steps)
-        """
-        # ? this seems like a duplicate call to update metrics?
-        metric_dict = {}
-        for data_source, rewards in data_source_reward.items():
-            # Calculate number of idks in rewards
-            # idk_ratio = np.mean(np.logical_and(np.array(rewards) > 0.2, np.array(rewards) < 0.9))
-            # correct_ratio = np.mean(np.array(rewards) >= 0.9)
-            # wrong_ratio = np.mean(np.logical_and(np.array(rewards) <= 0.2, np.array(rewards) >= 0.05))
-            # bad_format = np.mean(np.array(rewards) < 0.05)
-            status_lst = np.array(status_lst, dtype=object)
-            idk_ratio = (
-                np.count_nonzero(status_lst == 3) / len(status_lst)
-                if len(status_lst) > 0
-                else 0.0
-            )
-            correct_ratio = (
-                np.count_nonzero(status_lst == 2) / len(status_lst)
-                if len(status_lst) > 0
-                else 0.0
-            )
-            wrong_ratio = (
-                np.count_nonzero(status_lst == 1) / len(status_lst)
-                if len(status_lst) > 0
-                else 0.0
-            )
-            bad_format = (
-                np.count_nonzero(status_lst == 0) / len(status_lst)
-                if len(status_lst) > 0
-                else 0.0
-            )
+                metric_dict[f"val/correct_ratio"] = correct_ratio
+                metric_dict[f"val/wrong_ratio"] = wrong_ratio
+                metric_dict[f"val/idk_ratio"] = idk_ratio
+                metric_dict[f"val/bad_format_ratio"] = bad_format
+            else:
+                assert False, (
+                    "I am expecting 'reward_status_code' to be a key returned by `val_reward_fn`"
+                )
 
-            # wrong_and_inconfident = (
-            #     np.count_nonzero(status_lst == 4) / len(status_lst)
-            #     if len(status_lst) > 0
-            #     else 0.0
-            # )
-            # wrong_and_confident = (
-            #     np.count_nonzero(status_lst == 5) / len(status_lst)
-            #     if len(status_lst) > 0
-            #     else 0.0
-            # )
-            # right_and_inconfident = (
-            #     np.count_nonzero(status_lst == 6) / len(status_lst)
-            #     if len(status_lst) > 0
-            #     else 0.0
-            # )
-            # right_and_confident = (
-            #     np.count_nonzero(status_lst == 7) / len(status_lst)
-            #     if len(status_lst) > 0
-            #     else 0.0
-            # )
+            if "reward_float" in val_reward_fn_returns.keys():
+                metric_dict[f"val/avg_reward"] = sum(
+                    val_reward_fn_returns["reward_float"]
+                ) / len(val_reward_fn_returns["reward_float"])
+            else:
+                assert False, "expecting `reward_float` in val_reward_fn"
 
-            metric_dict[f"val/correct_ratio/{data_source}"] = correct_ratio
-            metric_dict[f"val/wrong_ratio/{data_source}"] = wrong_ratio
-            metric_dict[f"val/idk_ratio/{data_source}"] = idk_ratio
-            metric_dict[f"val/bad_format_ratio/{data_source}"] = bad_format
-            metric_dict[f"val/test_score/{data_source}"] = np.mean(rewards)
-            metric_dict[f"val/running_acc/{data_source}"] = sum(running_acc_lst) / len(
-                running_acc_lst
-            )
-
+            if "cur_reward_for_idk" in val_reward_fn_returns.keys():
+                metric_dict[f"val/avg_reward_for_dk"] = sum(
+                    val_reward_fn_returns["cur_reward_for_idk"]
+                ) / len(val_reward_fn_returns["cur_reward_for_idk"])
+            else:
+                assert False, "expecting `avg_reward_for_idk` in `val_reward_fn`"
             # metric_dict[f"val/wrong_and_inconfident/{data_source}"] = (
             #     wrong_and_inconfident
             # )
@@ -668,6 +676,18 @@ class RayPPOTrainer(object):
             raise NotImplementedError
 
         # create critic
+        # MATAN: Assert that we're not using GAE since we don't expect to need a critic for math dataset
+        if self.config.algorithm.adv_estimator == "gae":
+            print(f"ERROR: Using GAE advantage estimator which requires a critic!")
+            print(
+                f"For math dataset with ground truth answers, consider using GRPO instead:"
+            )
+            print(f"Add 'algorithm.adv_estimator=grpo \\' to your training script")
+            print(f"Current adv_estimator: {self.config.algorithm.adv_estimator}")
+            # assert False, (
+            #     f"Unexpected use of GAE advantage estimator. Expected GRPO for math dataset."
+            # )
+
         if self.config.algorithm.adv_estimator == "gae":
             resource_pool = self.resource_pool_manager.get_resource_pool(Role.Critic)
             critic_cls = RayClassWithInitArgs(
@@ -822,7 +842,7 @@ class RayPPOTrainer(object):
                 timing_raw = {}
 
                 batch: DataProto = DataProto.from_single_dict(batch_dict)
-                breakpoint()
+                # breakpoint()
                 # pop those keys for generation
                 gen_batch = batch.pop(
                     batch_keys=["input_ids", "attention_mask", "position_ids"]
@@ -835,6 +855,7 @@ class RayPPOTrainer(object):
                             gen_batch
                         )
 
+                    # ? I think the following two codeblocks are only relavent when we have repeat responses for the same prompt, which is not happening since we're using PPO and GAE.
                     batch.non_tensor_batch["uid"] = np.array(
                         [str(uuid.uuid4()) for _ in range(len(batch.batch))],
                         dtype=object,
@@ -852,13 +873,13 @@ class RayPPOTrainer(object):
                     self._balance_batch(batch, metrics=metrics)
 
                     # compute global_valid tokens
-                    #? what is this? 
+                    # ? what is this?
                     batch.meta_info["global_token_num"] = torch.sum(
                         batch.batch["attention_mask"], dim=-1
-                    ).tolist()
+                    ).tolist()  # ?I'm guessing this is the number of token generated
 
                     if self.use_reference_policy:
-                        assert False, "not expecting to self.use_reference_policy? Are we using any KL regularization?"
+                        # we do expect to use kl regularization which requires reference_policy
                         # compute reference log_prob
                         with _timer("ref", timing_raw):
                             ref_log_prob = self.ref_policy_wg.compute_ref_log_prob(
@@ -868,11 +889,12 @@ class RayPPOTrainer(object):
 
                     # compute values
                     if self.use_critic:
-                        assert False, "not using critic afaik"
+                        # assert False, "not using critic afaik"
                         with _timer("values", timing_raw):
                             values = self.critic_wg.compute_values(batch)
                             batch = batch.union(values)
 
+                    breakpoint()
                     with _timer("adv", timing_raw):
                         # compute scores. Support both model and function-based.
                         # We first compute the scores using reward model. Then, we call reward_fn to combine
@@ -882,14 +904,22 @@ class RayPPOTrainer(object):
                             reward_tensor = self.rm_wg.compute_rm_score(batch)
                             batch = batch.union(reward_tensor)
 
-                        reward_fn_ret : dict = self.reward_fn(batch)
+                        reward_fn_ret: dict = self.reward_fn(batch)
 
-                        #! can retrieve rest of variable from reward_fn_ret dictionary
-                        #TODO change to the names I have
-                        batch.batch["token_level_scores"] = reward_tensor
-                        batch.non_tensor_batch["status"] = np.array(
-                            status_list, dtype=object
-                        )
+                        # ? unpack the return of the reward fn on the batch (calls RewardManager which calls )
+                        if "reward_float" in reward_fn_ret.keys():
+                            batch.batch["token_level_scores"] = reward_fn_ret[
+                                "reward_float"
+                            ]
+
+                        if "reward_status_code" in reward_fn_ret.keys():
+                            batch.non_tensor_batch["statuses"] = np.array(
+                                reward_fn_ret["reward_status_code"], dtype=object
+                            )
+                        if "cur_reward_for_idk" in reward_fn_ret.keys():
+                            batch.non_tensor_batch["idk_rewards"] = np.array(
+                                reward_fn_ret["cur_reward_for_idk"], dtype=object
+                            )
 
                         # compute rewards. apply_kl_penalty if available
                         if not self.config.actor_rollout_ref.actor.use_kl_loss:
@@ -912,10 +942,9 @@ class RayPPOTrainer(object):
                             lam=self.config.algorithm.lam,
                             num_repeat=self.config.actor_rollout_ref.rollout.n,
                         )
-
                     # update critic
                     if self.use_critic:
-                        assert False, "not expecting to use critic"
+                        # assert False, "not expecting to use critic"
                         with _timer("update_critic", timing_raw):
                             critic_output = self.critic_wg.update_critic(batch)
                         critic_output_metrics = reduce_metrics(
@@ -925,7 +954,7 @@ class RayPPOTrainer(object):
 
                     # implement critic warmup
                     if self.config.trainer.critic_warmup <= self.global_steps:
-                        assert False, "not expecting to use critic"
+                        # assert False, "not expecting to use critic"
                         # update actor
                         with _timer("update_actor", timing_raw):
                             actor_output = self.actor_rollout_wg.update_actor(batch)
@@ -943,7 +972,7 @@ class RayPPOTrainer(object):
                         with _timer("validation", timing_raw):
                             val_metrics: dict = self._validate()
                         metrics.update(val_metrics)
-                        #? what do we do with the metrics once updated? ok, we finally log the metrics for the entire iteration -- so that's good
+                        # ? what do we do with the metrics once updated? ok, we finally log the metrics for the entire iteration -- so that's good
 
                     if (
                         self.config.trainer.save_freq > 0

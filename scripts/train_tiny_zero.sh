@@ -1,6 +1,13 @@
 ENTROPY_COEFF=1e-3
 #?matan actor_rollout_ref.actor.ppo_micro_batch_size=4 and other large batch sizes becuase we are didviding by some self.ulysses_sequence_parallel_size
 
+# Enable Ray Debugger
+export RAY_DEBUG=1
+
+# Configure Ray Dashboard for remote access
+export RAY_DASHBOARD_HOST=0.0.0.0
+export RAY_DASHBOARD_PORT=8265
+
 
 
 python3 -m verl.trainer.main_ppo \
@@ -45,5 +52,9 @@ trainer.project_name=TinyZero \
 trainer.experiment_name=$EXPERIMENT_NAME \
 trainer.total_epochs=15 \
 2>&1 | tee verl_demo.log
+
+
+#?changed to GRPO
+#algorithm.adv_estimator=grpo \
 
 #?I am trying the last 2 variables becuase of assert self.config.ppo_mini_batch_size % self.config.ppo_micro_batch_size == 0 (main_task pid=1024716) ZeroDivisionError: integer division or modulo by zero

@@ -1,5 +1,6 @@
 from enum import Enum
 import typing
+import ipdb
 
 
 class MathStatus(Enum):
@@ -25,10 +26,12 @@ def extract_solution(solution_str: str) -> None | str:
         del_idx = solution_str.find(DELIMITER)
         X = ""
         pars_stack: list = []
-        if del_idx != 1:  # there was at least one instance
+        if del_idx != -1:  # -1 means not found
             for char in solution_str[del_idx + len(DELIMITER) :]:
+                # ipdb.set_trace()
                 # is char open par?
                 if char in par_mapping.keys():
+                    # ipdb.set_trace()
                     pars_stack = pars_stack + [
                         char
                     ]  # push the open par to the top of the stack
@@ -40,11 +43,12 @@ def extract_solution(solution_str: str) -> None | str:
 
                     # not closing any valid opening
                     elif len(pars_stack) == 0:
+                        # ipdb.set_trace()
                         return None
 
-                    # closing a valid par (pars_stack has 1 element due to the above check)
+                    # closing a valid par (pars_stack has at least 1 element due to the above check)
                     elif par_mapping[pars_stack[-1]] == char:
-                        pass
+                        pars_stack.pop()  # ?how was thia already here but not
 
                 # its just a regular char
                 else:
@@ -56,6 +60,11 @@ def extract_solution(solution_str: str) -> None | str:
         return None
 
 
+test0 = r"""' To find the constants \\(a\\), \\(b\\), \\(c\\), and \\(d\\) such that \\((\\sin x)^7 = a \\sin 7x + b \\sin 5x + c \\sin 3x + d \\sin x\\), we can use the binomial theorem and properties of trigonometric functions. The binomial theorem tells us that \\((\\sin x)^7\\) can be expanded as a sum of terms involving \\(\\sin\\) and \\(\\cos\\) of multiples of \\(x\\).\n\nFirst, we use the identity for \\((\\sin x)^7\\):\n\\[\n(\\sin x)^7 = \\sum_{k=0}^{7} \\binom{7}{k} \\sin^k x \\sin^{7-k} x = \\sum_{k=0}^{7} \\binom{7}{k} \\sin^k x \\cos^{7-k} x.\n\\]\nHowever, we can also use the fact that \\((\\sin x)^7\\) can be expressed in terms of \\(\\sin\\) and \\(\\cos\\) of multiples of \\(x\\) using the angle addition and subtraction formulas. Specifically, we can use the identity:\n\\[\n(\\sin x)^7 = \\frac{1}{128} \\left( 11 \\sin 7x + 14 \\sin 5x + 11 \\sin 3x + 6 \\sin x \\right).\n\\]\nThis identity can be derived using the binomial theorem and properties of trigonometric functions. By comparing the coefficients of \\(\\sin 7x\\), \\(\\sin 5x\\), \\(\\sin 3x\\), and \\(\\sin x\\) on both sides of the equation, we can determine the values of \\(a\\), \\(b\\), \\(c\\), and \\(d\\).\n\nFrom the identity, we can see that the coefficient of \\(\\sin 7x\\) is \\(\\frac{11}{128}\\), the coefficient of \\(\\sin 5x\\) is \\(\\frac{14}{128}\\), the coefficient of \\(\\sin 3x\\) is \\(\\frac{11}{128}\\), and the coefficient of \\(\\sin x\\) is \\(\\frac{6}{128}\\). Therefore, we have:\n\\[\na = \\frac{11}{128}, \\quad b = \\frac{14}{128}, \\quad c = \\frac{11}{128}, \\quad d = \\frac{6}{128}.\n\\]\nThus, the value of \\(d\\) is:\n\\[\n\\boxed{\\frac{6}{128}}.\n\\]<|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|><|endoftext|>' 
+(main_task pid=683561)  extracted_solution=None 
+(main_task pid=683561)  ret={'reward_float': 0, 'reward_status_code': <MathStatus.BAD_FORMAT: 0>, 'cur_reward_for_idk': 0.5}
+(main_task pid=683561) OCCUSIONAL QUALITY PRINT:
+"""
 test1 = r"""
 [36m(main_task pid=1583359)[0m Solution string:  To find the value of \( y \) such that the projection of the vector \(\begin{pmatrix} 2 \\ y \\ -5 \end{pmatrix}\) onto the vector \(\begin{pmatrix} 1 \\ -2 \\ 1 \end{pmatrix}\) is \(\frac{5}{6} \begin{pmatrix} 1 \\ -2 \\ 1 \end{pmatrix}\), we need to use the formula for the projection of a vector \(\mathbf{a}\) onto a vector \(\mathbf{b}\):
 [36m(main_task pid=1583359)[0m 
@@ -146,6 +155,7 @@ test3 = r"""
 
 
 print(
+    extract_solution(test0),
     extract_solution(test1),
     extract_solution(test2),
     extract_solution(test3),

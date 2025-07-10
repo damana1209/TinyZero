@@ -28,3 +28,7 @@ currently `ray_trainer` is converting from raw numbers to single point metric da
 * how does `compute_data_metrics` expect its inputs?
 * have 10 min -- next step is change the return from reward_fn
   * this is such a big change to the codebase and maybe I don't want to make it... at least it invalidates the other score function
+
+----------------------
+
+* one worry is that within a batch, we are updating the reward for idk and it seems to me that we only want to update it between batches. This could be so insignificant that it basically does not matter.
