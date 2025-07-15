@@ -197,7 +197,7 @@ def compute_score_idk_rs(
             )
             ret: Final[dict] = {
                 "reward_float": reward_dict[MathStatus.WRONG_ANS_GOOD_FORMAT],
-                "reward_status_code": MathStatus.RIGHT,
+                "reward_status_code": MathStatus.WRONG_ANS_GOOD_FORMAT,
                 "cur_reward_for_idk": min(running_acc, idk_max_reward),
             }
 
@@ -206,7 +206,7 @@ def compute_score_idk_rs(
     to_print = random.randint(1, 64) == 1
     if to_print:
         print(
-            f"OCCUSIONAL QUALITY PRINT: \n\n {solution_str=} \n {extracted_solution=} \n {ret=}"
+            f"OCCUSIONAL QUALITY PRINT: \n\n {solution_str=} \n {extracted_solution=} \n {ret=} \n {ground_truth=}"
         )
 
     return ret

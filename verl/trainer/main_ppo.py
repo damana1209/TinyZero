@@ -73,6 +73,10 @@ class RewardManager:
 
         already_print_data_sources = {}
         compute_score_fn_returns = defaultdict(list)
+        # compute_score_fn_returns["reward_float"] = torch.zeros_like(
+        #    data.batch["responses"], dtype=torch.float32
+        # )
+
         for i in range(len(data)):
             data_item = data[i]  # DataProtoItem
 
@@ -93,6 +97,7 @@ class RewardManager:
 
             # decode
             # ? previously was passing question (i.e. valid_prompt_ids) to the grader -- why?
+            # ? maybe for some graders that is useful -- was kind of annoying for me
             concat_prompt_and_response_tokens = torch.cat(
                 (valid_prompt_ids, valid_response_ids)
             )
@@ -114,14 +119,27 @@ class RewardManager:
             assert isinstance(compute_score_fn_return, dict), (
                 f"Matan: I changed the interface so instead of returning a tuple with varying number of params, we return a dict. Usually, each element of the dict will be an integer-ish type representing a particular metric of the response {type(compute_score_fn_return)=}"
             )
+            # ? I will need to use the final reward to estimate advantage -- the previous approach was to already parse it as a tensor, I can instead
             for k, v in compute_score_fn_return.items():
                 # if k not in compute_score_fn_returns:
                 #     compute_score_fn_return[k] = []
+                # if k == "reward_float":
+                #     compute_score_fn_returns[k][i, valid_response_length - 1] = (
+                #         compute_score_fn_return[k]
+
+                #     )
+                # el
                 if isinstance(v, list):
                     compute_score_fn_returns[k].extend(v)
                 else:
                     compute_score_fn_returns[k].append(v)
 
+            compute_score_fn_returns["valid_response_length"].append(
+                valid_response_length.item()
+            )
+            compute_score_fn_return["max_score_length"] = data.batch["responses"].shape[
+                -1
+            ]
             if data_source not in already_print_data_sources:
                 already_print_data_sources[data_source] = 0
 
@@ -253,7 +271,7 @@ def main_task(config):
         val_reward_fn=val_reward_fn,
     )
     trainer.init_workers()
-    breakpoint()
+    #breakpoint()
     trainer.fit()
 
 

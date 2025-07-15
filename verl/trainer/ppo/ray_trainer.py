@@ -121,20 +121,20 @@ def apply_kl_penalty(
         beta = 0
         kld = torch.zeros_like(token_level_scores, dtype=torch.float32)
 
-    print(
-        f"MATAN SIZE: {responses.shape=} {token_level_scores.shape=}, {data.batch['old_log_probs'].shape=} {data.batch['ref_log_prob'].shape=}, {kld.shape=}"
-    )
+    # print(
+    #     f"MATAN SIZE: {responses.shape=} {token_level_scores.shape=}, {data.batch['old_log_probs'].shape=} {data.batch['ref_log_prob'].shape=}, {kld.shape=}"
+    # )
 
     # ?what shape do we expect here? we are going to have a reward for every position that we train, which in this case is 1024 (the max) so
     token_level_rewards = (
-        token_level_scores.unsqueeze(1).expand(
-            (token_level_scores.shape[0], kld.shape[-1])
-        )
+        token_level_scores.expand((token_level_scores.shape[0], kld.shape[-1]))
         - beta * kld
     )
 
     current_kl = masked_mean(kld, mask=response_mask, axis=-1)  # average over sequence
     current_kl = torch.mean(current_kl, dim=0).item()
+    if current_kl < 0:
+        breakpoint()
 
     # according to https://github.com/huggingface/trl/blob/951ca1841f29114b969b57b26c7d3e80a39f75a0/trl/trainer/ppo_trainer.py#L837
     kl_ctrl.update(current_kl=current_kl, n_steps=batch_size)
@@ -207,11 +207,11 @@ def _compute_response_info(batch):
 # def _matan_compute_data_metrics
 
 
-def compute_data_metrics(batch, is_validate, use_critic=True):
+def compute_data_metrics(batch, use_critic=True):
     """
     the standard function to compute metrics from all the data returned from a single PPO iteration.
 
-    This function is either called from `fit` or from `_validate`.
+    I wanted to make this also callable from `_validate` but decided against it becuase the metrics computed are really different.
     Any computation from the data returned by `reward_fn` (of `RewardManager` type) should be processed in this function.
     `RewardManager` takes in the raw token level responses and assignes each response a reward.
     logging is then taken care of by
@@ -225,11 +225,14 @@ def compute_data_metrics(batch, is_validate, use_critic=True):
     """
     # assert False, "I wrote `_matan_data_metrics` because I had relatively low confidence in "
     # TODO: add response length --CHANGE THIS FUNCTION TO THE WAY THESE ARE REFERED TO
-    sequence_score: torch.Tensor = batch.batch["token_level_scores"].sum(-1)
-    sequence_reward = batch.batch["token_level_rewards"].sum(-1)
-    assert sequence_score.eq(sequence_reward), (
-        "I expect these to be the same and I am not sure why they are seperete"
+    sequence_score: torch.Tensor = (
+        batch.batch["token_level_scores"]
+        .sum(-1)
+        .to(
+            dtype=torch.bfloat16
+        )  # got some error that was using long -- converted to float
     )
+    sequence_reward = batch.batch["token_level_rewards"].sum(-1)
     status_list = batch.non_tensor_batch["statuses"]
     # ? figure out how these come about
     rewards_for_idk_list = batch.non_tensor_batch["idk_rewards"]
@@ -238,8 +241,6 @@ def compute_data_metrics(batch, is_validate, use_critic=True):
     returns = batch.batch["returns"]
     # Count number of 0.5s in sequence_score and calculate average
     # idks = torch.logical_and(sequence_score > 0.2, sequence_score < 0.9).float().mean().item()
-    if len(status_list) == 0:
-        print("MATAN: why tf is status_list 0?")
     idk_ratio = (
         np.count_nonzero(status_list == MathStatus.IDK) / len(status_list)
         if len(status_list) > 0
@@ -278,7 +279,6 @@ def compute_data_metrics(batch, is_validate, use_critic=True):
 
     if use_critic:
         # ? what does this do?
-        assert False, "not planning to use critc and have not validated these metrics"
         values = batch.batch["values"]
         valid_values = torch.masked_select(values, response_mask)
         return_diff_var = torch.var(valid_returns - valid_values)
@@ -311,23 +311,29 @@ def compute_data_metrics(batch, is_validate, use_critic=True):
         "train-less-important/returns/mean": torch.mean(valid_returns).detach().item(),
         "train-less-important/returns/max": torch.max(valid_returns).detach().item(),
         "train-less-important/returns/min": torch.min(valid_returns).detach().item(),
-        # ? why this crazy pattern?
-        # **(
-        #     {
-        #         # values
-        #         #? what does this do?
-        #         "train/values/mean": torch.mean(valid_values).detach().item(),
-        #         "train/values/max": torch.max(valid_values).detach().item(),
-        #         "train/values/min": torch.min(valid_values).detach().item(),
-        #         # vf explained var
-        #         "train/vf_explained_var": (1.0 - return_diff_var / (return_var + 1e-5))
-        #         .detach()
-        #         .item(),
-        #     }
-        #     if use_critic
-        #     else {}
-        # ),
-        # # response length
+        **(
+            {
+                # values
+                "train-less-important/values/mean": torch.mean(valid_values)
+                .detach()
+                .item(),
+                "train-less-important/values/max": torch.max(valid_values)
+                .detach()
+                .item(),
+                "train-less-important/values/min": torch.min(valid_values)
+                .detach()
+                .item(),
+                # vf explained var
+                "train-less-importantn/vf_explained_var": (
+                    1.0 - return_diff_var / (return_var + 1e-5)
+                )
+                .detach()
+                .item(),
+            }
+            if use_critic
+            else {}
+        ),
+        # response length
         "response_length/mean": torch.mean(response_length).detach().item(),
         "response_length/max": torch.max(response_length).detach().item(),
         "response_length/min": torch.min(response_length).detach().item(),
@@ -894,7 +900,7 @@ class RayPPOTrainer(object):
                             values = self.critic_wg.compute_values(batch)
                             batch = batch.union(values)
 
-                    breakpoint()
+                    # breakpoint()
                     with _timer("adv", timing_raw):
                         # compute scores. Support both model and function-based.
                         # We first compute the scores using reward model. Then, we call reward_fn to combine
@@ -908,9 +914,14 @@ class RayPPOTrainer(object):
 
                         # ? unpack the return of the reward fn on the batch (calls RewardManager which calls )
                         if "reward_float" in reward_fn_ret.keys():
-                            batch.batch["token_level_scores"] = reward_fn_ret[
-                                "reward_float"
-                            ]
+                            # ? I think this is actually a pretty reasonable pattern? The reward fn returns the information in the 'plainest' way possible, and the trainer converts it to its desired format
+                            temp = torch.zeros_like(batch.batch["responses"])
+                            for i in range(batch.batch["responses"].shape[0]):
+                                # ? I'm kinda weirded out by the fact that valid_response_length is always 1024 -- shouldn't it be like... eh...
+                                temp[
+                                    i, reward_fn_ret["valid_response_length"][i] - 1
+                                ] = reward_fn_ret["reward_float"][i]
+                            batch.batch["token_level_scores"] = temp
 
                         if "reward_status_code" in reward_fn_ret.keys():
                             batch.non_tensor_batch["statuses"] = np.array(
@@ -981,7 +992,7 @@ class RayPPOTrainer(object):
                         with _timer("save_checkpoint", timing_raw):
                             self._save_checkpoint()
 
-                # collect metrics
+                # ? we've collected metrics into this large dictionary. some metrics needed to be computed from the logged data metrics and we do that here
                 metrics.update(
                     compute_data_metrics(batch=batch, use_critic=self.use_critic)
                 )
