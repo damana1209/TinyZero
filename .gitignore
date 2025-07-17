@@ -1,3 +1,6 @@
+# Matan 
+slurm*
+
 **/*.pt
 **/checkpoints
 **/wget-log

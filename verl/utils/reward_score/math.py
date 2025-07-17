@@ -142,6 +142,7 @@ def compute_score_idk_rs(
     solution_str: str, ground_truth: str, idk_max_reward=0.5
 ) -> dict:  # Tuple[float, Enum, float]:
     """
+    #! tuned off reward shipping for now by setting
     solution_str: only the model's response decoded to str
     ground_truth: the ground truth answer to the question given as a str
     idk_max_reward: the maximum reward we will give for idk (starts at running_acc as above and converges to the model current reward)
@@ -155,7 +156,7 @@ def compute_score_idk_rs(
     try:
         extracted_solution = extract_solution(solution_str)
         if extracted_solution is None:
-            ret: Final[dict] = {
+            ret = {
                 "reward_float": reward_dict[MathStatus.BAD_FORMAT],
                 "reward_status_code": MathStatus.BAD_FORMAT,
                 "cur_reward_for_idk": max(
@@ -164,11 +165,13 @@ def compute_score_idk_rs(
             }  # ?make sure that the caller expctes a tuple
 
         elif extracted_solution == "I don't know":
-            running_acc = ema_coeff * running_acc + (1 - ema_coeff) * idk_min_reward
+            running_acc = (
+                0.5  # ema_coeff * running_acc + (1 - ema_coeff) * idk_min_reward
+            )
             print(
                 f"IDK detected, returning idk_reward: {min(running_acc, idk_max_reward)}, running_acc: {running_acc}"
             )
-            ret: Final[dict] = {
+            ret = {
                 "reward_float": max(idk_min_reward, min(running_acc, idk_max_reward)),
                 "reward_status_code": MathStatus.IDK,
                 "cur_reward_for_idk": max(
@@ -178,11 +181,12 @@ def compute_score_idk_rs(
 
         # if extracted_solution is not None:
         elif is_equiv(extracted_solution, ground_truth):
-            running_acc = (
-                ema_coeff * running_acc
-                + (1 - ema_coeff) * reward_dict[MathStatus.RIGHT]
-            )
-            ret: Final[dict] = {
+            running_acc = 0.5
+            # (
+            #     ema_coeff * running_acc
+            #     + (1 - ema_coeff) * reward_dict[MathStatus.RIGHT]
+            # )
+            ret = {
                 "reward_float": reward_dict[MathStatus.RIGHT],
                 "reward_status_code": MathStatus.RIGHT,
                 "cur_reward_for_idk": max(
@@ -191,11 +195,11 @@ def compute_score_idk_rs(
             }  #
         # return val is wrong
         else:
-            running_acc = (
-                ema_coeff * running_acc
-                + (1 - ema_coeff) * reward_dict[MathStatus.WRONG_ANS_GOOD_FORMAT]
-            )
-            ret: Final[dict] = {
+            running_acc = 0.5  # (
+            #     ema_coeff * running_acc
+            #     + (1 - ema_coeff) * reward_dict[MathStatus.WRONG_ANS_GOOD_FORMAT]
+            # )
+            ret = {
                 "reward_float": reward_dict[MathStatus.WRONG_ANS_GOOD_FORMAT],
                 "reward_status_code": MathStatus.WRONG_ANS_GOOD_FORMAT,
                 "cur_reward_for_idk": min(running_acc, idk_max_reward),

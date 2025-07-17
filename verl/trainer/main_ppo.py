@@ -168,7 +168,7 @@ def main(config):
                     "TOKENIZERS_PARALLELISM": "true",
                     "NCCL_DEBUG": "WARN",
                     "RAY_DEBUG": "1",
-                    "RAY_DEBUG_POST_MORTEM": "1",  # Add this for exception debugging
+                    "RAY_DEBUG_POST_MORTEM": "1",  # ?disabling this to not mask core dump
                 }
             },
         )
@@ -271,7 +271,7 @@ def main_task(config):
         val_reward_fn=val_reward_fn,
     )
     trainer.init_workers()
-    #breakpoint()
+    # breakpoint()
     trainer.fit()
 
 

@@ -124,8 +124,9 @@ def apply_kl_penalty(
     # print(
     #     f"MATAN SIZE: {responses.shape=} {token_level_scores.shape=}, {data.batch['old_log_probs'].shape=} {data.batch['ref_log_prob'].shape=}, {kld.shape=}"
     # )
-
+    #! below was my original comment and it is WRONG. token_level_rewards should only have a reward at the last token position -- I wrote this before I understoof the gae mechanism. Wait, but isn't token level scores already that size?
     # ?what shape do we expect here? we are going to have a reward for every position that we train, which in this case is 1024 (the max) so
+    # breakpoint()
     token_level_rewards = (
         token_level_scores.expand((token_level_scores.shape[0], kld.shape[-1]))
         - beta * kld
@@ -133,8 +134,9 @@ def apply_kl_penalty(
 
     current_kl = masked_mean(kld, mask=response_mask, axis=-1)  # average over sequence
     current_kl = torch.mean(current_kl, dim=0).item()
-    if current_kl < 0:
-        breakpoint()
+    # ? this is not really kl. it is an approximation logprob - reflogprob (see `compute_kl`)
+    # if current_kl < 0:
+    #     breakpoint()
 
     # according to https://github.com/huggingface/trl/blob/951ca1841f29114b969b57b26c7d3e80a39f75a0/trl/trainer/ppo_trainer.py#L837
     kl_ctrl.update(current_kl=current_kl, n_steps=batch_size)
@@ -207,6 +209,23 @@ def _compute_response_info(batch):
 # def _matan_compute_data_metrics
 
 
+def add_metric_with_description(
+    metrics_dict, descriptions_dict, key, value, description
+):
+    """
+    Helper function to add a metric with its description.
+
+    Args:
+        metrics_dict: Dictionary to store metric values
+        descriptions_dict: Dictionary to store metric descriptions
+        key: Metric name
+        value: Metric value
+        description: Human-readable description of the metric
+    """
+    metrics_dict[key] = value
+    descriptions_dict[key] = description
+
+
 def compute_data_metrics(batch, use_critic=True):
     """
     the standard function to compute metrics from all the data returned from a single PPO iteration.
@@ -235,7 +254,7 @@ def compute_data_metrics(batch, use_critic=True):
     sequence_reward = batch.batch["token_level_rewards"].sum(-1)
     status_list = batch.non_tensor_batch["statuses"]
     # ? figure out how these come about
-    rewards_for_idk_list = batch.non_tensor_batch["idk_rewards"]
+    rewards_for_idk_list = batch.non_tensor_batch["idk_rewards"].flatten().mean()
 
     advantages = batch.batch["advantages"]
     returns = batch.batch["returns"]
@@ -266,7 +285,11 @@ def compute_data_metrics(batch, use_critic=True):
     max_response_length = batch.batch["responses"].shape[-1]
 
     prompt_mask = batch.batch["attention_mask"][:, :-max_response_length].bool()
-    response_mask = batch.batch["attention_mask"][:, -max_response_length:].bool()
+    response_mask = batch.batch[
+        "attention_mask"
+    ][
+        :, -max_response_length:
+    ].bool()  # ?grabs the last 1024 (max_response_length as set in `train_tiny_zero`) and sets to true. The actual attention mask has length 1536 for some reason? maybe a max bound on the question, I'm guessing?
 
     max_prompt_length = prompt_mask.size(-1)
 
@@ -278,80 +301,241 @@ def compute_data_metrics(batch, use_critic=True):
     valid_returns = torch.masked_select(returns, response_mask)
 
     if use_critic:
-        # ? what does this do?
         values = batch.batch["values"]
+        # ? just selects everything at the moment -- not sure why values would be longer than the response length? just collapses into one dimension
         valid_values = torch.masked_select(values, response_mask)
         return_diff_var = torch.var(valid_returns - valid_values)
         return_var = torch.var(valid_returns)
 
     # ? starting from the end -- what metrics do I want to see
-    metrics = {
-        # ratios
-        "train/idk_ratio": idk_ratio,
-        "train/correct_ratio": correct_ratio,
-        "train/wrong_ans_good_format_ratio": wrong_ans_good_format_ratio,
-        "train/bad_format_ratio": bad_format_ratio,
-        # avg idk scores
-        "train/avg_idk_reward": rewards_for_idk_list,
-        # score
-        "train-less-important/score/mean": torch.mean(sequence_score).detach().item(),
-        "train-less-important/score/max": torch.max(sequence_score).detach().item(),
-        "train-less-important/score/min": torch.min(sequence_score).detach().item(),
-        # reward
-        "train-less-important/rewards/mean": torch.mean(sequence_reward)
-        .detach()
-        .item(),
-        "train-less-important/rewards/max": torch.max(sequence_reward).detach().item(),
-        "train-less-important/rewards/min": torch.min(sequence_reward).detach().item(),
-        # adv
-        "train-less-important/advantages/mean": torch.mean(valid_adv).detach().item(),
-        "train-less-important/advantages/max": torch.max(valid_adv).detach().item(),
-        "train-less-important/advantages/min": torch.min(valid_adv).detach().item(),
-        # returns
-        "train-less-important/returns/mean": torch.mean(valid_returns).detach().item(),
-        "train-less-important/returns/max": torch.max(valid_returns).detach().item(),
-        "train-less-important/returns/min": torch.min(valid_returns).detach().item(),
-        **(
-            {
-                # values
-                "train-less-important/values/mean": torch.mean(valid_values)
-                .detach()
-                .item(),
-                "train-less-important/values/max": torch.max(valid_values)
-                .detach()
-                .item(),
-                "train-less-important/values/min": torch.min(valid_values)
-                .detach()
-                .item(),
-                # vf explained var
-                "train-less-importantn/vf_explained_var": (
-                    1.0 - return_diff_var / (return_var + 1e-5)
-                )
-                .detach()
-                .item(),
-            }
-            if use_critic
-            else {}
-        ),
-        # response length
-        "response_length/mean": torch.mean(response_length).detach().item(),
-        "response_length/max": torch.max(response_length).detach().item(),
-        "response_length/min": torch.min(response_length).detach().item(),
-        "response_length/clip_ratio": torch.mean(
-            torch.eq(response_length, max_response_length).float()
+    metrics = {}
+    descriptions = {}
+
+    # Add metrics with descriptions using helper function
+    add_metric_with_description(
+        metrics,
+        descriptions,
+        "train/idk_ratio",
+        idk_ratio,
+        "Proportion of responses where model said 'I don't know'",
+    )
+    add_metric_with_description(
+        metrics,
+        descriptions,
+        "train/correct_ratio",
+        correct_ratio,
+        "Proportion of responses with correct mathematical answers",
+    )
+    add_metric_with_description(
+        metrics,
+        descriptions,
+        "train/wrong_ans_good_format_ratio",
+        wrong_ans_good_format_ratio,
+        "Proportion of responses with incorrect answers but valid format",
+    )
+    add_metric_with_description(
+        metrics,
+        descriptions,
+        "train/bad_format_ratio",
+        bad_format_ratio,
+        "Proportion of responses with invalid formatting",
+    )
+    add_metric_with_description(
+        metrics,
+        descriptions,
+        "train/avg_idk_reward",
+        rewards_for_idk_list,
+        "Average reward given for 'I don't know' responses",
+    )
+
+    # Score metrics
+    add_metric_with_description(
+        metrics,
+        descriptions,
+        "train-less-important/score/mean",
+        torch.mean(sequence_score).detach().item(),
+        "Mean sequence-level score across batch",
+    )
+    add_metric_with_description(
+        metrics,
+        descriptions,
+        "train-less-important/score/max",
+        torch.max(sequence_score).detach().item(),
+        "Maximum sequence-level score in batch",
+    )
+    add_metric_with_description(
+        metrics,
+        descriptions,
+        "train-less-important/score/min",
+        torch.min(sequence_score).detach().item(),
+        "Minimum sequence-level score in batch",
+    )
+
+    # Reward metrics
+    add_metric_with_description(
+        metrics,
+        descriptions,
+        "train-less-important/rewards/mean",
+        torch.mean(sequence_reward).detach().item(),
+        "Mean sequence-level reward (score + KL penalty) across batch",
+    )
+    add_metric_with_description(
+        metrics,
+        descriptions,
+        "train-less-important/rewards/max",
+        torch.max(sequence_reward).detach().item(),
+        "Maximum sequence-level reward in batch",
+    )
+    add_metric_with_description(
+        metrics,
+        descriptions,
+        "train-less-important/rewards/min",
+        torch.min(sequence_reward).detach().item(),
+        "Minimum sequence-level reward in batch",
+    )
+
+    # Advantage metrics
+    add_metric_with_description(
+        metrics,
+        descriptions,
+        "train-less-important/advantages/mean",
+        torch.mean(valid_adv).detach().item(),
+        "Mean advantage values for PPO policy gradient",
+    )
+    add_metric_with_description(
+        metrics,
+        descriptions,
+        "train-less-important/advantages/max",
+        torch.max(valid_adv).detach().item(),
+        "Maximum advantage value in batch",
+    )
+    add_metric_with_description(
+        metrics,
+        descriptions,
+        "train-less-important/advantages/min",
+        torch.min(valid_adv).detach().item(),
+        "Minimum advantage value in batch",
+    )
+
+    # Returns metrics
+    add_metric_with_description(
+        metrics,
+        descriptions,
+        "train-less-important/returns/mean",
+        torch.mean(valid_returns).detach().item(),
+        "Mean return values (cumulative future rewards)",
+    )
+    add_metric_with_description(
+        metrics,
+        descriptions,
+        "train-less-important/returns/max",
+        torch.max(valid_returns).detach().item(),
+        "Maximum return value in batch",
+    )
+    add_metric_with_description(
+        metrics,
+        descriptions,
+        "train-less-important/returns/min",
+        torch.min(valid_returns).detach().item(),
+        "Minimum return value in batch",
+    )
+
+    # Value function metrics (if using critic)
+    if use_critic:
+        add_metric_with_description(
+            metrics,
+            descriptions,
+            "train-less-important/values/mean",
+            torch.mean(valid_values).detach().item(),
+            "Mean value function predictions",
         )
-        .detach()
-        .item(),
-        # prompt length
-        "prompt_length/mean": torch.mean(prompt_length).detach().item(),
-        "prompt_length/max": torch.max(prompt_length).detach().item(),
-        "prompt_length/min": torch.min(prompt_length).detach().item(),
-        "prompt_length/clip_ratio": torch.mean(
-            torch.eq(prompt_length, max_prompt_length).float()
+        add_metric_with_description(
+            metrics,
+            descriptions,
+            "train-less-important/values/max",
+            torch.max(valid_values).detach().item(),
+            "Maximum value function prediction",
         )
+        add_metric_with_description(
+            metrics,
+            descriptions,
+            "train-less-important/values/min",
+            torch.min(valid_values).detach().item(),
+            "Minimum value function prediction",
+        )
+        add_metric_with_description(
+            metrics,
+            descriptions,
+            "train-less-important/vf_explained_var",
+            (1.0 - return_diff_var / (return_var + 1e-5)).detach().item(),
+            "Value function explained variance (how well critic predicts returns)",
+        )
+
+    # Response length metrics
+    add_metric_with_description(
+        metrics,
+        descriptions,
+        "response_length/mean",
+        torch.mean(response_length).detach().item(),
+        "Average length of generated responses in tokens",
+    )
+    add_metric_with_description(
+        metrics,
+        descriptions,
+        "response_length/max",
+        torch.max(response_length).detach().item(),
+        "Maximum response length in batch",
+    )
+    add_metric_with_description(
+        metrics,
+        descriptions,
+        "response_length/min",
+        torch.min(response_length).detach().item(),
+        "Minimum response length in batch",
+    )
+    add_metric_with_description(
+        metrics,
+        descriptions,
+        "response_length/clip_ratio",
+        torch.mean(torch.eq(response_length, max_response_length).float())
         .detach()
         .item(),
-    }
+        "Fraction of responses that hit maximum length limit",
+    )
+
+    # Prompt length metrics
+    add_metric_with_description(
+        metrics,
+        descriptions,
+        "prompt_length/mean",
+        torch.mean(prompt_length).detach().item(),
+        "Average length of input prompts in tokens",
+    )
+    add_metric_with_description(
+        metrics,
+        descriptions,
+        "prompt_length/max",
+        torch.max(prompt_length).detach().item(),
+        "Maximum prompt length in batch",
+    )
+    add_metric_with_description(
+        metrics,
+        descriptions,
+        "prompt_length/min",
+        torch.min(prompt_length).detach().item(),
+        "Minimum prompt length in batch",
+    )
+    add_metric_with_description(
+        metrics,
+        descriptions,
+        "prompt_length/clip_ratio",
+        torch.mean(torch.eq(prompt_length, max_prompt_length).float()).detach().item(),
+        "Fraction of prompts that hit maximum length limit",
+    )
+
+    # Store descriptions in metrics metadata for potential use by logger
+    metrics["_descriptions"] = descriptions
+
     return metrics
 
 
@@ -369,15 +553,34 @@ def compute_timing_metrics(batch, timing_raw):
         },
     }
 
-    return {
-        **{f"timing_s/{name}": value for name, value in timing_raw.items()},
-        **{
-            f"timing_per_token_ms/{name}": timing_raw[name]
-            * 1000
-            / num_tokens_of_section[name]
-            for name in set(num_tokens_of_section.keys()) & set(timing_raw.keys())
-        },
-    }
+    metrics = {}
+    descriptions = {}
+
+    # Add timing metrics with descriptions
+    for name, value in timing_raw.items():
+        add_metric_with_description(
+            metrics,
+            descriptions,
+            f"timing_s/{name}",
+            value,
+            f"Wall-clock time in seconds for {name} phase",
+        )
+
+    # Add per-token timing metrics with descriptions
+    for name in set(num_tokens_of_section.keys()) & set(timing_raw.keys()):
+        per_token_ms = timing_raw[name] * 1000 / num_tokens_of_section[name]
+        add_metric_with_description(
+            metrics,
+            descriptions,
+            f"timing_per_token_ms/{name}",
+            per_token_ms,
+            f"Time per token in milliseconds for {name} phase",
+        )
+
+    # Store descriptions in metrics metadata
+    metrics["_descriptions"] = descriptions
+
+    return metrics
 
 
 @contextmanager
@@ -683,16 +886,17 @@ class RayPPOTrainer(object):
 
         # create critic
         # MATAN: Assert that we're not using GAE since we don't expect to need a critic for math dataset
-        if self.config.algorithm.adv_estimator == "gae":
-            print(f"ERROR: Using GAE advantage estimator which requires a critic!")
-            print(
-                f"For math dataset with ground truth answers, consider using GRPO instead:"
-            )
-            print(f"Add 'algorithm.adv_estimator=grpo \\' to your training script")
-            print(f"Current adv_estimator: {self.config.algorithm.adv_estimator}")
-            # assert False, (
-            #     f"Unexpected use of GAE advantage estimator. Expected GRPO for math dataset."
-            # )
+        # ? the warning below is wrong -- its okay to use gae and ppo. (I also do now see how grpo can be seen as ppo with a larger per-prompt batch and a different advantage estimator, at least sort of :)
+        # if self.config.algorithm.adv_estimator == "gae":
+        #     print(f"ERROR: Using GAE advantage estimator which requires a critic!")
+        #     print(
+        #         f"For math dataset with ground truth answers, consider using GRPO instead:"
+        #     )
+        #     print(f"Add 'algorithm.adv_estimator=grpo \\' to your training script")
+        #     print(f"Current adv_estimator: {self.config.algorithm.adv_estimator}")
+        # assert False, (
+        #     f"Unexpected use of GAE advantage estimator. Expected GRPO for math dataset."
+        # )
 
         if self.config.algorithm.adv_estimator == "gae":
             resource_pool = self.resource_pool_manager.get_resource_pool(Role.Critic)
@@ -827,6 +1031,23 @@ class RayPPOTrainer(object):
         )
 
         self.global_steps = 0
+
+        # # Log metric descriptions once at the beginning of training
+        # metric_descriptions = {
+        #     "train/idk_ratio": "Proportion of responses where model said 'I don't know'",
+        #     "train/correct_ratio": "Proportion of responses with correct mathematical answers",
+        #     "train/wrong_ans_good_format_ratio": "Proportion of responses with incorrect answers but valid format",
+        #     "train/bad_format_ratio": "Proportion of responses with invalid formatting",
+        #     "train/avg_idk_reward": "Average reward given for 'I don't know' responses",
+        #     "train-less-important/score/mean": "Mean sequence-level score across batch",
+        #     "train-less-important/rewards/mean": "Mean sequence-level reward (score + KL penalty) across batch",
+        #     "train-less-important/advantages/mean": "Mean advantage values for PPO policy gradient",
+        #     "train-less-important/returns/mean": "Mean return values (cumulative future rewards)",
+        #     "response_length/mean": "Average length of generated responses in tokens",
+        #     "response_length/clip_ratio": "Fraction of responses that hit maximum length limit",
+        #     "prompt_length/mean": "Average length of input prompts in tokens",
+        #     # Add more descriptions as needed...
+        # }
 
         # perform validation before training
         if self.val_reward_fn is not None and self.config.trainer.get(

@@ -56,6 +56,22 @@ class DataParallelPPOActor(BasePPOActor):
             verl_F.entropy_from_logits, dynamic=True
         )
 
+        # ? I think I / Claude added these prints when I was having some micro-batch=0 issues. I think the micro-batch is the number of generations for prompt and the mini is # prompts
+        print(
+            f"DEBUG: ppo_mini_batch_size = {getattr(self.config, 'ppo_mini_batch_size', 'NOT_SET')}"
+        )
+        print(
+            f"DEBUG: ppo_micro_batch_size = {getattr(self.config, 'ppo_micro_batch_size', 'NOT_SET')}"
+        )
+        try:
+            print(f"DEBUG: {self.ulysses_sequence_parallel_size=}")
+        except:
+            pass
+        print(
+            f"DEBUG: config keys = {list(self.config.keys()) if hasattr(self.config, 'keys') else 'NO_KEYS'}"
+        )
+        print(f"DEBUG: config type = {type(self.config)}")
+
     def _forward_micro_batch(
         self, micro_batch, temperature
     ) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -251,21 +267,6 @@ class DataParallelPPOActor(BasePPOActor):
     def update_policy(self, data: DataProto):
         # make sure we are in training mode
         self.actor_module.train()
-
-        print(
-            f"DEBUG: ppo_mini_batch_size = {getattr(self.config, 'ppo_mini_batch_size', 'NOT_SET')}"
-        )
-        print(
-            f"DEBUG: ppo_micro_batch_size = {getattr(self.config, 'ppo_micro_batch_size', 'NOT_SET')}"
-        )
-        try:
-            print(f"DEBUG: {self.ulysses_sequence_parallel_size=}")
-        except:
-            pass
-        print(
-            f"DEBUG: config keys = {list(self.config.keys()) if hasattr(self.config, 'keys') else 'NO_KEYS'}"
-        )
-        print(f"DEBUG: config type = {type(self.config)}")
 
         assert (
             self.config.ppo_mini_batch_size % self.config.ppo_micro_batch_size == 0

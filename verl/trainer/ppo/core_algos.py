@@ -83,7 +83,7 @@ def compute_gae_advantage_return(
     Args:
         token_level_rewards: `(torch.Tensor)`
             shape: (bs, response_length)
-        values: `(torch.Tensor)`
+        values: `(torch.Tensor)` #?values assigned by the critic
             shape: (bs, response_length)
         eos_mask: `(torch.Tensor)`
             shape: (bs, response_length). [EOS] mask. The token after [EOS] have mask zero.
@@ -114,9 +114,8 @@ def compute_gae_advantage_return(
         advantages = torch.stack(advantages_reversed[::-1], dim=1)
 
         returns = advantages + values
-        advantages = verl_F.masked_whiten(
-            advantages, eos_mask
-        )  # ?stabalize scores across the batch to have 0 mean and variance 1 -- the batch offers normalization even on 1 response per prompt
+        # ?stabalize scores across the batch to have 0 mean and variance 1 -- the batch offers normalization even on 1 response per prompt
+        advantages = verl_F.masked_whiten(advantages, eos_mask)
     return advantages, returns
 
 
@@ -197,7 +196,7 @@ def compute_policy_loss(old_log_prob, log_prob, advantages, eos_mask, cliprange)
             a float number indicating the fraction of policy gradient loss being clipped
 
     """
-    negative_approx_kl = log_prob - old_log_prob
+    negative_approx_kl = log_prob - old_log_prob  # ? this is not always negative?
     ratio = torch.exp(negative_approx_kl)
     ppo_kl = verl_F.masked_mean(-negative_approx_kl, eos_mask)
 

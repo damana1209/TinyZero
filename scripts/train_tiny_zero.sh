@@ -22,7 +22,7 @@ actor_rollout_ref.model.path=$BASE_MODEL \
 actor_rollout_ref.model.use_remove_padding=True \
 actor_rollout_ref.model.enable_gradient_checkpointing=True \
 actor_rollout_ref.actor.use_dynamic_bsz=True \
-actor_rollout_ref.actor.optim.lr=5e-7 \
+actor_rollout_ref.actor.optim.lr=2e-6 \
 actor_rollout_ref.actor.ppo_mini_batch_size=256 \
 actor_rollout_ref.actor.ppo_micro_batch_size=4 \
 actor_rollout_ref.actor.entropy_coeff=$ENTROPY_COEFF \
@@ -51,7 +51,7 @@ trainer.test_freq=20 \
 trainer.project_name=TinyZero \
 trainer.experiment_name=$EXPERIMENT_NAME \
 trainer.total_epochs=15 \
-2>&1 | tee verl_demo.log
+2>&1 | tee /work/nvme/betg/mshtepel/TinyZero/logs/verl_demo.log
 
 
 #?changed to GRPO

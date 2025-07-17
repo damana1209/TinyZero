@@ -7,7 +7,8 @@
 #SBATCH --account=betg-dtai-gh   # <- match to a "Project" returned by the "accounts" command
 #SBATCH --job-name=run
 #SBATCH --partition=ghx4
-#SBATCH --time=12:00:00      # hh:mm:ss for the job
+i
+#SBATCH --time=1:00:00      # hh:mm:ss for the job
 #SBATCH --exclude="gh066,gh015,gh089,gh016"
 #SBATCH -e logs/slurm-%j.err
 #SBATCH -o logs/slurm-%j.out
@@ -23,6 +24,7 @@ export DATASET="lighteval/MATH_idk"
 # DATASET="countdown_idk_and_answer"
 export CUDA_VISIBLE_DEVICES=0,1,2,3
 export N_GPUS=4
+#export BASE_MODEL="/work/nvme/betg/mshtepel/models/Qwen3-4B"
 export BASE_MODEL="/work/nvme/betg/mshtepel/models/Qwen/Qwen2.5-1.5B-Instruct"
 # export BASE_MODEL="/work/nvme/betg/darora1/verifiers/Llama-3.2-1B"
 # export BASE_MODEL="/work/nvme/betg/darora1/verifiers/OctoThinker-1B-Short-Base"
@@ -32,5 +34,5 @@ export ROLLOUT_TP_SIZE=2
 export EXPERIMENT_NAME=$DATASET"_$(basename $BASE_MODEL)_entropy_coeff_1e-3_idk_0.5_lr_5e-7_2"
 # export EXPERIMENT_NAME=$DATASET"-qwen2.5-1.5b_4choice"
 export VLLM_ATTENTION_BACKEND=FLASH_ATTN #? trying with FA2 becuase I don't want to install xformers (prev:XFORMERS)
-
+#!add idk base reward here? 
 bash ./scripts/train_tiny_zero.sh
