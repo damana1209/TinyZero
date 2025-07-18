@@ -142,9 +142,25 @@ def get_eos_mask(response_id: torch.Tensor, eos_token: int = 2, dtype=torch.int6
     response_id: [0, 0, 2, 42, 3, 5, 1, 0, 0]
     eos_mask:     [1, 1, 1, 1,  1, 1, 1, 0, 0]
     '''
-    eos_mask = response_id.eq(eos_token).long()
-    eos_mask = (torch.cumsum(eos_mask, dim=1) - eos_mask).bool()
-    eos_mask = torch.logical_not(eos_mask).to(dtype)
+    # Find the first occurrence of eos_token in each sequence
+    eos_positions = response_id.eq(eos_token).long()
+
+    # For each sequence, find the position of the first EOS token
+    # Use cumsum to track cumulative EOS count, then find where it first becomes 1
+    cumulative_eos = torch.cumsum(eos_positions, dim=1)
+
+    # Create mask: 1 for positions before and including first EOS, 0 for positions after first EOS
+    # We want positions where cumulative_eos <= 1 (i.e., we haven't gone past the first EOS)
+    eos_mask = (cumulative_eos <= 1).to(dtype)
+
+    # However, if there's no EOS token in the sequence, all positions should be 1
+    # Check if any sequence has no EOS tokens
+    has_eos = (cumulative_eos[:, -1] > 0).unsqueeze(1)  # (batch_size, 1)
+
+    # For sequences without EOS, set all positions to 1
+    # For sequences with EOS, use the computed mask
+    eos_mask = torch.where(has_eos, eos_mask, torch.ones_like(eos_mask, dtype=dtype))
+
     return eos_mask
 
 

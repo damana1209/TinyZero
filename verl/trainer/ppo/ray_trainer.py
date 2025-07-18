@@ -206,9 +206,6 @@ def _compute_response_info(batch):
     )
 
 
-# def _matan_compute_data_metrics
-
-
 def add_metric_with_description(
     metrics_dict, descriptions_dict, key, value, description
 ):
@@ -242,6 +239,52 @@ def compute_data_metrics(batch, use_critic=True):
                 logger.log(data=metrics, step=self.global_steps)
     ```
     """
+    # MATAN: Debug attention mask issue
+    # print("=== DEBUGGING ATTENTION MASK ===")
+    # responses = batch.batch["responses"]
+
+    # # Check token IDs
+    # pad_token_id = 151643  # Based on your findings
+    # print(f"Pad token ID: {pad_token_id}")
+
+    # # Get the corrected response info
+    # response_info = _compute_response_info(batch)
+    # corrected_response_mask = response_info["response_mask"]
+
+    # # Check first few responses
+    # for i in [0, 1]:
+    #     response = responses[i]
+    #     print(f"\nResponse {i}:")
+
+    #     # Find pad positions
+    #     pad_positions = (response == pad_token_id).nonzero().flatten()
+    #     if len(pad_positions) > 0:
+    #         first_pad = pad_positions[0].item()
+    #         print(f"  First pad at: {first_pad}")
+    #         print(f"  Content length: {first_pad}")
+    #     else:
+    #         print(f"  No padding found, full length: {response.shape[0]}")
+
+    #     # Check corrected response mask
+    #     corrected_valid_length = corrected_response_mask[i].sum().item()
+    #     print(f"  Corrected response mask says valid length: {corrected_valid_length}")
+    #     print(
+    #         f"  Corrected mask last 10 values: {corrected_response_mask[i][-10:].tolist()}"
+    #     )
+
+    #     # Verify fix worked
+    #     if len(pad_positions) > 0:
+    #         expected_valid = pad_positions[0].item()
+    #         if expected_valid == corrected_valid_length:
+    #             print(
+    #                 f"  ✓ FIX WORKED! Expected: {expected_valid}, Got: {corrected_valid_length}"
+    #             )
+    #         else:
+    #             print(
+    #                 f"  ✗ FIX FAILED! Expected: {expected_valid}, Got: {corrected_valid_length}"
+    #             )
+    # print("=== END DEBUG ===\n")
+
     # assert False, "I wrote `_matan_data_metrics` because I had relatively low confidence in "
     # TODO: add response length --CHANGE THIS FUNCTION TO THE WAY THESE ARE REFERED TO
     sequence_score: torch.Tensor = (
@@ -281,33 +324,51 @@ def compute_data_metrics(batch, use_critic=True):
         if len(status_list) > 0
         else 0.0
     )
-
     max_response_length = batch.batch["responses"].shape[-1]
 
     prompt_mask = batch.batch["attention_mask"][:, :-max_response_length].bool()
-    response_mask = batch.batch[
-        "attention_mask"
-    ][
-        :, -max_response_length:
-    ].bool()  # ?grabs the last 1024 (max_response_length as set in `train_tiny_zero`) and sets to true. The actual attention mask has length 1536 for some reason? maybe a max bound on the question, I'm guessing?
+    response_mask = batch.batch["attention_mask"][:, -max_response_length:].bool()
 
     max_prompt_length = prompt_mask.size(-1)
 
-    response_info = _compute_response_info(batch)
-    prompt_length = response_info["prompt_length"]
-    response_length = response_info["response_length"]
+    # TODO replace this with a tensorized method
+    # prompt mask is left-padded, so starts with False and then turns true
+    prompt_length = torch.tensor(
+        [
+            prompt_mask.shape[1] - (prompt_mask[idx, :] == 1).nonzero()[0]
+            if (prompt_mask[idx, :] == 0).any()
+            else prompt_mask.shape[1]
+            for idx in range(prompt_mask.shape[0])
+        ]
+    ).to(dtype=torch.float32)
 
+    response_length = torch.tensor(
+        [
+            (response_mask[idx, :] == 0).nonzero()[0]
+            if (response_mask[idx, :] == 0).any()
+            else response_mask.shape[1]
+            for idx in range(response_mask.shape[0])
+        ]
+    ).to(dtype=torch.float32)
+
+    # response_info = _compute_response_info(batch)
+    # prompt_length = response_info["prompt_length"]
+    # response_length = response_info["response_length"]
+    # response_mask = response_info["response_mask"].bool()  # Use the CORRECTED mask
+
+    # max_prompt_length = prompt_mask.size(-1)
+
+    # Use the corrected response_mask for masking operations
     valid_adv = torch.masked_select(advantages, response_mask)
     valid_returns = torch.masked_select(returns, response_mask)
 
     if use_critic:
         values = batch.batch["values"]
-        # ? just selects everything at the moment -- not sure why values would be longer than the response length? just collapses into one dimension
+
         valid_values = torch.masked_select(values, response_mask)
         return_diff_var = torch.var(valid_returns - valid_values)
         return_var = torch.var(valid_returns)
 
-    # ? starting from the end -- what metrics do I want to see
     metrics = {}
     descriptions = {}
 
@@ -445,28 +506,28 @@ def compute_data_metrics(batch, use_critic=True):
         add_metric_with_description(
             metrics,
             descriptions,
-            "train-less-important/values/mean",
+            "critic/values/mean",
             torch.mean(valid_values).detach().item(),
             "Mean value function predictions",
         )
         add_metric_with_description(
             metrics,
             descriptions,
-            "train-less-important/values/max",
+            "critic/values/max",
             torch.max(valid_values).detach().item(),
             "Maximum value function prediction",
         )
         add_metric_with_description(
             metrics,
             descriptions,
-            "train-less-important/values/min",
+            "critic/values/min",
             torch.min(valid_values).detach().item(),
             "Minimum value function prediction",
         )
         add_metric_with_description(
             metrics,
             descriptions,
-            "train-less-important/vf_explained_var",
+            "critic/vf_explained_var",
             (1.0 - return_diff_var / (return_var + 1e-5)).detach().item(),
             "Value function explained variance (how well critic predicts returns)",
         )
@@ -992,7 +1053,13 @@ class RayPPOTrainer(object):
             self.critic_wg.save_checkpoint(critic_local_path, critic_remote_path)
 
     def _balance_batch(self, batch: DataProto, metrics, logging_prefix="global_seqlen"):
-        """Reorder the data on single controller such that each dp rank gets similar total tokens"""
+        """
+        Reorder the data on the single controller so that each data parallel (dp) rank receives a similar total number of tokens.
+
+        What is a dp rank?
+        - "dp rank" refers to the index of a process or worker in a data parallel group. In distributed training, data parallelism (DP) means splitting the input batch across multiple workers (ranks), each of which processes a portion of the data and computes gradients independently. These gradients are then synchronized across all ranks.
+        - Each "dp rank" is responsible for a shard of the batch, and balancing the number of tokens per rank helps ensure efficient and fair workload distribution.
+        """
         attention_mask = batch.batch["attention_mask"]
         batch_size = attention_mask.shape[0]
         global_seqlen_lst = (
@@ -1082,7 +1149,36 @@ class RayPPOTrainer(object):
                             gen_batch
                         )
 
-                    # ? I think the following two codeblocks are only relavent when we have repeat responses for the same prompt, which is not happening since we're using PPO and GAE.
+                    # MATAN: Debug generation output
+                    # print("=== POST-GENERATION DEBUG ===")
+                    # responses = gen_batch_output.batch["responses"]
+                    # attention_mask = gen_batch_output.batch["attention_mask"]
+                    # print(f"Generated attention mask shape: {attention_mask.shape}")
+                    # print(f"Generated responses shape: {responses.shape}")
+
+                    # # Check a few samples
+                    # for i in [0, 1]:
+                    #     response = responses[i]
+                    #     resp_mask = attention_mask[i, -responses.shape[1] :]
+
+                    #     # Find pad tokens (assumed to be 151643 based on our debugging)
+                    #     pad_positions = (response == 151643).nonzero().flatten()
+                    #     if len(pad_positions) > 0:
+                    #         first_pad = pad_positions[0].item()
+                    #         print(f"  Response {i}: First pad at {first_pad}")
+                    #         print(
+                    #             f"  Response {i}: Attention mask valid length: {resp_mask.sum().item()}"
+                    #         )
+                    #         print(
+                    #             f"  Response {i}: Last 10 attention values: {resp_mask[-10:].tolist()}"
+                    #         )
+                    #         if first_pad != resp_mask.sum().item():
+                    #             print(
+                    #                 f"  *** GENERATION BUG: Expected {first_pad}, got {resp_mask.sum().item()} ***"
+                    #             )
+                    # print("=== END POST-GENERATION DEBUG ===")
+
+                    # ? I think the following three assignement statements are only relavent when we have repeat responses for the same prompt, which is not happening since we're using PPO and GAE.
                     batch.non_tensor_batch["uid"] = np.array(
                         [str(uuid.uuid4()) for _ in range(len(batch.batch))],
                         dtype=object,
@@ -1103,7 +1199,7 @@ class RayPPOTrainer(object):
                     # ? what is this?
                     batch.meta_info["global_token_num"] = torch.sum(
                         batch.batch["attention_mask"], dim=-1
-                    ).tolist()  # ?I'm guessing this is the number of token generated
+                    ).tolist()
 
                     if self.use_reference_policy:
                         # we do expect to use kl regularization which requires reference_policy
@@ -1116,7 +1212,6 @@ class RayPPOTrainer(object):
 
                     # compute values
                     if self.use_critic:
-                        # assert False, "not using critic afaik"
                         with _timer("values", timing_raw):
                             values = self.critic_wg.compute_values(batch)
                             batch = batch.union(values)
@@ -1176,7 +1271,6 @@ class RayPPOTrainer(object):
                         )
                     # update critic
                     if self.use_critic:
-                        # assert False, "not expecting to use critic"
                         with _timer("update_critic", timing_raw):
                             critic_output = self.critic_wg.update_critic(batch)
                         critic_output_metrics = reduce_metrics(

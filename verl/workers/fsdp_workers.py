@@ -424,6 +424,7 @@ class ActorRolloutRefWorker(Worker):
 
         if self._is_actor and recompute_log_prob:
             # we should always recompute old_log_probs when it is HybridEngine
+            # ? I have no idea what this does and why
             output.meta_info['micro_batch_size'] = self.config.rollout.log_prob_micro_batch_size
             output.meta_info['max_token_len'] = self.config.rollout.log_prob_max_token_len_per_gpu
             output.meta_info['use_dynamic_bsz'] = self.config.rollout.log_prob_use_dynamic_bsz

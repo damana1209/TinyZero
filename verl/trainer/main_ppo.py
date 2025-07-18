@@ -189,9 +189,6 @@ def main_task(config):
         OmegaConf.to_container(config, resolve=True)
     )  # resolve=True will eval symbol values
     OmegaConf.resolve(config)
-    print("About to hit breakpoint in main_task")
-    # breakpoint()  # Test this first
-    print("Continuing after breakpoint")
     # download the checkpoint from hdfs
     local_path = copy_local_path_from_hdfs(config.actor_rollout_ref.model.path)
 

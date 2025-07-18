@@ -177,6 +177,8 @@ class vLLMRollout(BaseRollout):
                 sampling_params=self.sampling_params,
                 prompt_token_ids=idx_list,
                 use_tqdm=False)
+        # if torch.distributed.get_rank() == 0:  # Only debug on rank 0
+        #     breakpoint()
 
         # TODO(sgm): disable logprob when recompute_log_prob is enable
         # if n = 1: (bs, response_length) ; if n > 1: (bs * n, response_length)
@@ -204,7 +206,12 @@ class vLLMRollout(BaseRollout):
         # position_ids:   [0,0,0,0,0,1,2,3, | 4,5,6,7,8,9,10,11]
         response_position_ids = position_ids[:, -1:] + delta_position_id
         position_ids = torch.cat([position_ids, response_position_ids], dim=-1)
-        response_attention_mask = get_eos_mask(response_id=response, eos_token=eos_token_id, dtype=attention_mask.dtype)
+        # breakpoint()  # ? good place to check the attention mask again
+        response_attention_mask = get_eos_mask(
+            response_id=response,
+            eos_token=self.pad_token_id,
+            dtype=attention_mask.dtype,
+        )
         attention_mask = torch.cat((attention_mask, response_attention_mask), dim=-1)
 
         # all the tp ranks should contain the same data here. data in all ranks are valid

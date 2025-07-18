@@ -81,9 +81,9 @@ def compute_gae_advantage_return(
     """Adapted from https://github.com/huggingface/trl/blob/main/trl/trainer/ppo_trainer.py
 
     Args:
-        token_level_rewards: `(torch.Tensor)`
+        token_level_rewards: `(torch.Tensor)` #? these are "token level" as opposed to "batch level" (i.e. the direct reward signal for the response rather than f(advantages, kl, clipping, entropy bonus))
             shape: (bs, response_length)
-        values: `(torch.Tensor)` #?values assigned by the critic
+        values: `(torch.Tensor)` #?values assigned by the critic to each symbol in each response
             shape: (bs, response_length)
         eos_mask: `(torch.Tensor)`
             shape: (bs, response_length). [EOS] mask. The token after [EOS] have mask zero.
