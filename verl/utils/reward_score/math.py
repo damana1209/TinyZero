@@ -13,7 +13,9 @@
 # limitations under the License.
 # Adapted from https://github.com/EleutherAI/lm-evaluation-harness/blob/main/lm_eval/tasks/hendrycks_math/utils.py
 import random
-import re 
+import re
+from typing import Tuple
+
 
 class MathStatus:
     BAD_FORMAT = 0
@@ -70,7 +72,9 @@ def compute_score(solution_str, ground_truth) -> float:
 
 running_acc = 0.5
 ema_coeff = 0.999
-def compute_score_idk_rs(solution_str, ground_truth, idk_reward=0.5) -> float:
+def compute_score_idk_rs(
+    solution_str, ground_truth, idk_reward=0.5
+) -> tuple[float, MathStatus]:
     global running_acc, ema_coeff
     retval = 0.
     to_print = random.randint(1, 64) == 1

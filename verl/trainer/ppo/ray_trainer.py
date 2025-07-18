@@ -639,89 +639,140 @@ class RayPPOTrainer(object):
                     with _timer('gen', timing_raw):
                         gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch)
 
-                    batch.non_tensor_batch['uid'] = np.array([str(uuid.uuid4()) for _ in range(len(batch.batch))],
-                                                             dtype=object)
-                    # repeat to align with repeated responses in rollout
-                    batch = batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
-                    batch = batch.union(gen_batch_output)
+                        print("=== POST-GENERATION DEBUG ===")
+                    responses = gen_batch_output.batch["responses"]
+                    attention_mask = gen_batch_output.batch["attention_mask"]
+                    print(f"Generated attention mask shape: {attention_mask.shape}")
+                    print(f"Generated responses shape: {responses.shape}")
 
-                    # balance the number of valid tokens on each dp rank.
-                    # Note that this breaks the order of data inside the batch.
-                    # Please take care when you implement group based adv computation such as GRPO and rloo
-                    self._balance_batch(batch, metrics=metrics)
+                    # Check a few samples
+                    for i in [0, 1]:
+                        response = responses[i]
+                        resp_mask = attention_mask[i, -responses.shape[1] :]
 
-                    # compute global_valid tokens
-                    batch.meta_info['global_token_num'] = torch.sum(batch.batch['attention_mask'], dim=-1).tolist()
+                        # Find pad tokens (assumed to be 151643 based on our debugging)
+                        pad_positions = (response == 151643).nonzero().flatten()
+                        if len(pad_positions) > 0:
+                            first_pad = pad_positions[0].item()
+                            print(f"  Response {i}: First pad at {first_pad}")
+                            print(
+                                f"  Response {i}: Attention mask valid length: {resp_mask.sum().item()}"
+                            )
+                            print(
+                                f"  Response {i}: Last 10 attention values: {resp_mask[-10:].tolist()}"
+                            )
+                            if first_pad != resp_mask.sum().item():
+                                print(
+                                    f"  *** GENERATION BUG: Expected {first_pad}, got {resp_mask.sum().item()} ***"
+                                )
+                    print("=== END POST-GENERATION DEBUG ===")
 
-                    if self.use_reference_policy:
-                        # compute reference log_prob
-                        with _timer('ref', timing_raw):
-                            ref_log_prob = self.ref_policy_wg.compute_ref_log_prob(batch)
-                            batch = batch.union(ref_log_prob)
+                batch.non_tensor_batch["uid"] = np.array(
+                    [str(uuid.uuid4()) for _ in range(len(batch.batch))], dtype=object
+                )
+                # repeat to align with repeated responses in rollout
+                batch = batch.repeat(
+                    repeat_times=self.config.actor_rollout_ref.rollout.n,
+                    interleave=True,
+                )
+                batch = batch.union(gen_batch_output)
 
-                    # compute values
-                    if self.use_critic:
-                        with _timer('values', timing_raw):
-                            values = self.critic_wg.compute_values(batch)
-                            batch = batch.union(values)
+                # balance the number of valid tokens on each dp rank.
+                # Note that this breaks the order of data inside the batch.
+                # Please take care when you implement group based adv computation such as GRPO and rloo
+                self._balance_batch(batch, metrics=metrics)
 
-                    with _timer('adv', timing_raw):
-                        # compute scores. Support both model and function-based.
-                        # We first compute the scores using reward model. Then, we call reward_fn to combine
-                        # the results from reward model and rule-based results.
-                        if self.use_rm:
-                            # we first compute reward model score
-                            reward_tensor = self.rm_wg.compute_rm_score(batch)
-                            batch = batch.union(reward_tensor)
+                # compute global_valid tokens
+                batch.meta_info["global_token_num"] = torch.sum(
+                    batch.batch["attention_mask"], dim=-1
+                ).tolist()
 
-                        # we combine with rule-based rm
-                        # breakpoint()
-                        reward_tensor, status_list = self.reward_fn(batch)
-                        batch.batch['token_level_scores'] = reward_tensor
-                        batch.non_tensor_batch['status'] = np.array(status_list, dtype=object)
+                if self.use_reference_policy:
+                    # compute reference log_prob
+                    with _timer("ref", timing_raw):
+                        ref_log_prob = self.ref_policy_wg.compute_ref_log_prob(batch)
+                        batch = batch.union(ref_log_prob)
 
-                        # compute rewards. apply_kl_penalty if available
-                        if not self.config.actor_rollout_ref.actor.use_kl_loss:
-                            batch, kl_metrics = apply_kl_penalty(batch,
-                                                                 kl_ctrl=self.kl_ctrl,
-                                                                 kl_penalty=self.config.algorithm.kl_penalty)
-                            metrics.update(kl_metrics)
-                        else:
-                            batch.batch['token_level_rewards'] = batch.batch['token_level_scores']
+                # compute values
+                if self.use_critic:
+                    with _timer("values", timing_raw):
+                        values = self.critic_wg.compute_values(batch)
+                        batch = batch.union(values)
 
-                        # compute advantages, executed on the driver process
-                        batch = compute_advantage(batch,
-                                                  adv_estimator=self.config.algorithm.adv_estimator,
-                                                  gamma=self.config.algorithm.gamma,
-                                                  lam=self.config.algorithm.lam,
-                                                  num_repeat=self.config.actor_rollout_ref.rollout.n)
+                with _timer("adv", timing_raw):
+                    # compute scores. Support both model and function-based.
+                    # We first compute the scores using reward model. Then, we call reward_fn to combine
+                    # the results from reward model and rule-based results.
+                    if self.use_rm:
+                        # we first compute reward model score
+                        reward_tensor = self.rm_wg.compute_rm_score(batch)
+                        batch = batch.union(reward_tensor)
 
-                    # update critic
-                    if self.use_critic:
-                        with _timer('update_critic', timing_raw):
-                            critic_output = self.critic_wg.update_critic(batch)
-                        critic_output_metrics = reduce_metrics(critic_output.meta_info['metrics'])
-                        metrics.update(critic_output_metrics)
+                    # we combine with rule-based rm
+                    # breakpoint()
+                    reward_tensor, status_list = self.reward_fn(batch)
+                    batch.batch["token_level_scores"] = reward_tensor
+                    batch.non_tensor_batch["status"] = np.array(
+                        status_list, dtype=object
+                    )
 
-                    # implement critic warmup
-                    if self.config.trainer.critic_warmup <= self.global_steps:
-                        # update actor
-                        with _timer('update_actor', timing_raw):
-                            actor_output = self.actor_rollout_wg.update_actor(batch)
-                        actor_output_metrics = reduce_metrics(actor_output.meta_info['metrics'])
-                        metrics.update(actor_output_metrics)
+                    # compute rewards. apply_kl_penalty if available
+                    if not self.config.actor_rollout_ref.actor.use_kl_loss:
+                        batch, kl_metrics = apply_kl_penalty(
+                            batch,
+                            kl_ctrl=self.kl_ctrl,
+                            kl_penalty=self.config.algorithm.kl_penalty,
+                        )
+                        metrics.update(kl_metrics)
+                    else:
+                        batch.batch["token_level_rewards"] = batch.batch[
+                            "token_level_scores"
+                        ]
 
-                    # validate
-                    if self.val_reward_fn is not None and self.config.trainer.test_freq > 0 and \
-                        self.global_steps % self.config.trainer.test_freq == 0:
-                        with _timer('testing', timing_raw):
-                            val_metrics: dict = self._validate()
-                        metrics.update(val_metrics)
+                    # compute advantages, executed on the driver process
+                    batch = compute_advantage(
+                        batch,
+                        adv_estimator=self.config.algorithm.adv_estimator,
+                        gamma=self.config.algorithm.gamma,
+                        lam=self.config.algorithm.lam,
+                        num_repeat=self.config.actor_rollout_ref.rollout.n,
+                    )
 
-                    if self.config.trainer.save_freq > 0 and \
-                            self.global_steps % self.config.trainer.save_freq == 0:
-                        with _timer('save_checkpoint', timing_raw):
-                            self._save_checkpoint()
+                # update critic
+                if self.use_critic:
+                    with _timer("update_critic", timing_raw):
+                        critic_output = self.critic_wg.update_critic(batch)
+                    critic_output_metrics = reduce_metrics(
+                        critic_output.meta_info["metrics"]
+                    )
+                    metrics.update(critic_output_metrics)
+
+                # implement critic warmup
+                if self.config.trainer.critic_warmup <= self.global_steps:
+                    # update actor
+                    with _timer("update_actor", timing_raw):
+                        actor_output = self.actor_rollout_wg.update_actor(batch)
+                    actor_output_metrics = reduce_metrics(
+                        actor_output.meta_info["metrics"]
+                    )
+                    metrics.update(actor_output_metrics)
+
+                # validate
+                if (
+                    self.val_reward_fn is not None
+                    and self.config.trainer.test_freq > 0
+                    and self.global_steps % self.config.trainer.test_freq == 0
+                ):
+                    with _timer("testing", timing_raw):
+                        val_metrics: dict = self._validate()
+                    metrics.update(val_metrics)
+
+                if (
+                    self.config.trainer.save_freq > 0
+                    and self.global_steps % self.config.trainer.save_freq == 0
+                ):
+                    with _timer("save_checkpoint", timing_raw):
+                        self._save_checkpoint()
 
                 # collect metrics
                 metrics.update(compute_data_metrics(batch=batch, use_critic=self.use_critic))

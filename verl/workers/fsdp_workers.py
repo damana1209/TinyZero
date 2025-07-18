@@ -131,6 +131,7 @@ class ActorRolloutRefWorker(Worker):
 
         torch_dtype = fsdp_config.get('model_dtype', None)
         if torch_dtype is None:
+            # ? i'm guessing that the way to remove the "Flash Attention 2.0 only supports torch.float16 and torch.bfloat16 dtypes, but the current dype in Qwen2ForTokenClassification is torch.float32..." errors we are seeing in each run is to switch below to torch.float32 to torch.bfloat16, but I'm scared to change it
             torch_dtype = torch.float32 if self._is_actor else torch.bfloat16
         else:
             torch_dtype = PrecisionType.to_dtype(torch_dtype)

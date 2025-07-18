@@ -51,7 +51,7 @@ if __name__ == '__main__':
     if not args.idk:
         instruction_following = "Let's think step by step and output the final answer within \\boxed{}."
     else:
-        instruction_following = "Let's think step by step and output the final answer within \\boxed{}. If you're unsure of how to solve the problem, just say \\boxed{I don't know}."
+        instruction_following = "Let's think step by step and output the final answer within \\boxed{}. If after reasoning you're unsure of how to solve the problem, please say \\boxed{I don't know} to recieve partial rewards."
 
 
     # add a row to each data item that represents a unique id
