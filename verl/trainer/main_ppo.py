@@ -159,7 +159,6 @@ import hydra
 @hydra.main(config_path="config", config_name="ppo_trainer", version_base=None)
 def main(config):
     if not ray.is_initialized():
-        # this is for local ray cluster
         ray.init(
             dashboard_host="0.0.0.0",
             dashboard_port=8265,
@@ -168,10 +167,11 @@ def main(config):
                     "TOKENIZERS_PARALLELISM": "true",
                     "NCCL_DEBUG": "WARN",
                     "RAY_DEBUG": "1",
-                    "RAY_DEBUG_POST_MORTEM": "1",  # ?disabling this to not mask core dump
+                    "RAY_DEBUG_POST_MORTEM": "1",
                 }
             },
         )
+        # ?Daman's setting: ray.init(runtime_env={'env_vars': {'TOKENIZERS_PARALLELISM': 'true', 'NCCL_DEBUG': 'WARN', "RAY_DEBUG": "legacy"}})
 
     ray.get(main_task.remote(config))
 
@@ -198,6 +198,7 @@ def main_task(config):
     tokenizer = hf_tokenizer(local_path)
 
     # define worker classes
+    # ? I am surprised that we currently don't seem to specify this -- I think we're using FSDP
     if config.actor_rollout_ref.actor.strategy == "fsdp":
         assert config.actor_rollout_ref.actor.strategy == config.critic.strategy
         from verl.workers.fsdp_workers import ActorRolloutRefWorker, CriticWorker
@@ -206,6 +207,7 @@ def main_task(config):
         ray_worker_group_cls = RayWorkerGroup
 
     elif config.actor_rollout_ref.actor.strategy == "megatron":
+        assert False, "expecting to use fsdp, not megatron"
         assert config.actor_rollout_ref.actor.strategy == config.critic.strategy
         from verl.workers.megatron_workers import ActorRolloutRefWorker, CriticWorker
         from verl.single_controller.ray.megatron import NVMegatronRayWorkerGroup
@@ -257,7 +259,6 @@ def main_task(config):
     resource_pool_manager = ResourcePoolManager(
         resource_pool_spec=resource_pool_spec, mapping=mapping
     )
-
     trainer = RayPPOTrainer(
         config=config,
         tokenizer=tokenizer,

@@ -128,7 +128,7 @@ def extract_solution(solution_str: str) -> None | str:
 
 # TODO move these into a global config
 # TODO incorporate it in the MathStatus class above?
-running_acc = 0.5
+running_acc = 0.6
 ema_coeff = 0.999
 idk_min_reward = 0.1  # the real reward is the base accumlator
 reward_dict = {
@@ -139,7 +139,7 @@ reward_dict = {
 
 
 def compute_score_idk_rs(
-    solution_str: str, ground_truth: str, idk_max_reward=0.5
+    solution_str: str, ground_truth: str, idk_max_reward=0.6
 ) -> dict:  # Tuple[float, Enum, float]:
     """
     #! tuned off reward shipping for now by setting
@@ -166,7 +166,7 @@ def compute_score_idk_rs(
 
         elif extracted_solution == "I don't know":
             running_acc = (
-                0.5  # ema_coeff * running_acc + (1 - ema_coeff) * idk_min_reward
+                0.6  # ema_coeff * running_acc + (1 - ema_coeff) * idk_min_reward
             )
             print(
                 f"IDK detected, returning idk_reward: {min(running_acc, idk_max_reward)}, running_acc: {running_acc}"
@@ -181,7 +181,7 @@ def compute_score_idk_rs(
 
         # if extracted_solution is not None:
         elif is_equiv(extracted_solution, ground_truth):
-            running_acc = 0.5
+            running_acc = 0.6
             # (
             #     ema_coeff * running_acc
             #     + (1 - ema_coeff) * reward_dict[MathStatus.RIGHT]
@@ -195,7 +195,7 @@ def compute_score_idk_rs(
             }  #
         # return val is wrong
         else:
-            running_acc = 0.5  # (
+            running_acc = 0.6  # (
             #     ema_coeff * running_acc
             #     + (1 - ema_coeff) * reward_dict[MathStatus.WRONG_ANS_GOOD_FORMAT]
             # )

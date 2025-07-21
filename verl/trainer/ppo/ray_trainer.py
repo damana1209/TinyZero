@@ -675,6 +675,21 @@ class RayPPOTrainer(object):
         self.reward_fn = reward_fn
         self.val_reward_fn = val_reward_fn
 
+        # ? wanted a new random seed each time, but to log to hf for reproducability -- haven't tried this
+        # # Set global random seed if specified in config
+        # if hasattr(self.config.trainer, "global_seed"):
+        #     import torch
+        #     import numpy as np
+        #     import random
+
+        #     global_seed = self.config.trainer.global_seed
+        #     torch.manual_seed(global_seed)
+        #     np.random.seed(global_seed)
+        #     random.seed(global_seed)
+        #     if torch.cuda.is_available():
+        #         torch.cuda.manual_seed_all(global_seed)
+        #     print(f"Set global random seed to: {global_seed}")
+
         self.hybrid_engine = config.actor_rollout_ref.hybrid_engine
         assert self.hybrid_engine, "Currently, only support hybrid engine"
 
@@ -1010,6 +1025,7 @@ class RayPPOTrainer(object):
             # keep the referece of WorkerDict to support ray >= 2.31. Ref: https://github.com/ray-project/ray/pull/45699
             self.wg_dicts.append(wg_dict)
 
+        # breakpoint()
         if self.use_critic:
             self.critic_wg = all_wg["critic"]
             self.critic_wg.init_model()

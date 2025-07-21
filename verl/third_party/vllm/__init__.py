@@ -45,7 +45,10 @@ elif (
     or package_version == "0.6.3.post2.dev0+ga2c71c540.d20250602.cu126"
     or package_version == "0.6.4.dev0+gfd47e57f4.d20250602.cu126"
     or package_version == "0.6.4.dev0+gfd47e57f4.d20250703.cu126"
-):  # ? Matan: added the last one, what Daman installed, previously not on the list
+    # ? Matan: added above -- original installation when we were using FA and it would crash
+    or package_version == "0.6.4.dev0+gfd47e57f4.d20250720.cu126"
+    # ? Jul 20 Daman installation of XFORMERS uses the vllm above
+):
     vllm_version = "0.6.3"
     from .vllm_v_0_6_3.llm import LLM
     from .vllm_v_0_6_3.llm import LLMEngine

@@ -1,2 +1,13 @@
-* it would be useful to seperate the rewards etc that we write from the ones that were already provided, for example in  `from verl.utils.reward_score import gsm8k, math, multiply, countdown`
-* no random `globals` instead use a global cfg 
+
+POTENTIALLY CRUCIAL
+* get a pi-chart output of timining (seems that about 90% is in gen)
+    * try to learn of more ways to track what GPUs are doing
+
+MAYBE ACTUALLY USEFUL FOR RESEARCH 
+* a new random seed each time, but to log to hf for reproducability
+
+WOULD BE NICE, NOT NEEDED
+* log avg reward for run
+* make idk_reward a parameter of `run_countdown` or `train_tiny_zero` (currently its just set in file) -- pretty low priority since its already logged, but we could actually have quite a few errors with the current setup
+* in OCCUSIONAL QUALITY PRINT also print out the question (currently only the answer)
+

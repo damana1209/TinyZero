@@ -7,13 +7,13 @@
 #SBATCH --account=betg-dtai-gh   # <- match to a "Project" returned by the "accounts" command
 #SBATCH --job-name=run
 #SBATCH --partition=ghx4
-i
 #SBATCH --time=1:00:00      # hh:mm:ss for the job
 #SBATCH --exclude="gh066,gh015,gh089,gh016"
 #SBATCH -e logs/slurm-%j.err
 #SBATCH -o logs/slurm-%j.out
 
 echo "job is starting on `hostname`"
+
 
 # DATASET="countdown"
 # DATASET="countdown_idk"
@@ -30,9 +30,11 @@ export BASE_MODEL="/work/nvme/betg/mshtepel/models/Qwen/Qwen2.5-1.5B-Instruct"
 # export BASE_MODEL="/work/nvme/betg/darora1/verifiers/OctoThinker-1B-Short-Base"
 # export DATA_DIR="/work/nvme/betg/darora1/TinyZero/countdown_idk/"
 export DATA_DIR="/u/mshtepel/data/math_idk"
-export ROLLOUT_TP_SIZE=2
+export ROLLOUT_TP_SIZE=1
 export EXPERIMENT_NAME=$DATASET"_$(basename $BASE_MODEL)_entropy_coeff_1e-3_idk_0.5_lr_5e-7_2"
 # export EXPERIMENT_NAME=$DATASET"-qwen2.5-1.5b_4choice"
-export VLLM_ATTENTION_BACKEND=FLASH_ATTN #? trying with FA2 becuase I don't want to install xformers (prev:XFORMERS)
+export VLLM_ATTENTION_BACKEND=XFORMERS
+# export VLLM_ATTENTION_BACKEND=FLASH_ATTN
+#? FLASH_ATTN maybe caused memory errors? Daman guesses. Now installed XFORMERS. 
 #!add idk base reward here? 
 bash ./scripts/train_tiny_zero.sh

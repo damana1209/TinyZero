@@ -1,0 +1,4 @@
+---
+alwaysApply: true
+---
+You are on SLURM machine on the DeltaAI cluster (https://docs.ncsa.illinois.edu/systems/deltaai/en/latest/index.html). Each machine has 4 GH200 GPUs and is arch using CrayOS. This codebase is meant to try to train an LLM on various RL objectives. 
