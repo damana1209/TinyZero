@@ -148,7 +148,7 @@ def main(config):
     reward_fn = make_reward_function(tokenizer=tokenizer, num_examine=1)
 
     resource_pool_manager = ResourcePoolManager(resource_pool_spec=resource_pool_spec, mapping=mapping)
-
+    # breakpoint()
     trainer = RayPPOTrainer(config=config,
                             tokenizer=tokenizer,
                             role_worker_mapping=role_worker_mapping,

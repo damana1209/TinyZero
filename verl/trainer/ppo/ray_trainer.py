@@ -915,24 +915,6 @@ class RayPPOTrainer(object):
                 ) / len(val_reward_fn_returns["cur_reward_for_idk"])
             else:
                 assert False, "expecting `avg_reward_for_idk` in `val_reward_fn`"
-            # metric_dict[f"val/wrong_and_inconfident/{data_source}"] = (
-            #     wrong_and_inconfident
-            # )
-            # metric_dict[f"val/wrong_and_confident/{data_source}"] = wrong_and_confident
-            # metric_dict[f"val/right_and_inconfident/{data_source}"] = (
-            #     right_and_inconfident
-            # )
-            # metric_dict[f"val/right_and_confident/{data_source}"] = right_and_confident
-
-            # metric_dict[f"validation/correct_ratio"] = correct_ratio
-            # metric_dict[f"validation/wrong_ratio"] = wrong_ratio
-            # metric_dict[f"validation/idk_ratio"] = idk_ratio
-            # metric_dict[f"validation/bad_format_ratio"] = bad_format
-            # metric_dict[f"validation/test_score"] = np.mean(rewards)
-            # metric_dict[f"validation/wrong_and_inconfident"] = wrong_and_inconfident
-            # metric_dict[f"validation/wrong_and_confident"] = wrong_and_confident
-            # metric_dict[f"validation/right_and_inconfident"] = right_and_inconfident
-            # metric_dict[f"validation/right_and_confident"] = right_and_confident
 
         return metric_dict
 
@@ -975,6 +957,7 @@ class RayPPOTrainer(object):
         # )
 
         if self.config.algorithm.adv_estimator == "gae":
+            # breakpoint()
             resource_pool = self.resource_pool_manager.get_resource_pool(Role.Critic)
             critic_cls = RayClassWithInitArgs(
                 cls=self.role_worker_mapping[Role.Critic], config=self.config.critic
@@ -1035,6 +1018,7 @@ class RayPPOTrainer(object):
             self.ref_policy_wg.init_model()
 
         if self.use_rm:
+            assert False, "not expecting to use reward model at the moment"
             self.rm_wg = all_wg["rm"]
             self.rm_wg.init_model()
 
@@ -1194,7 +1178,7 @@ class RayPPOTrainer(object):
                     #             )
                     # print("=== END POST-GENERATION DEBUG ===")
 
-                    # ? I think the following three assignement statements are only relavent when we have repeat responses for the same prompt, which is not happening since we're using PPO and GAE.
+                    # ? I think the following three assignement statements are only relavent when we we generate several responses for the same prompt (i.e. actor_rollout_ref.rollout.n > 1) we are currently not doing this.
                     batch.non_tensor_batch["uid"] = np.array(
                         [str(uuid.uuid4()) for _ in range(len(batch.batch))],
                         dtype=object,

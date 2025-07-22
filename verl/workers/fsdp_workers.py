@@ -525,6 +525,8 @@ class CriticWorker(Worker):
         import torch.distributed
         if not torch.distributed.is_initialized():
             torch.distributed.init_process_group(backend="nccl")
+        # if self.rank == 0:
+        # breakpoint()
         self.config = config
 
         # build device mesh for Ulysses Sequence Parallel
@@ -668,6 +670,9 @@ class CriticWorker(Worker):
         import_external_libs(self.config.model.get('external_lib', None))
 
         from verl.workers.critic import DataParallelPPOCritic
+
+        # if self.rank == 0:
+        # breakpoint()
         self.critic_module, self.critic_optimizer, self.critic_lr_scheduler = self._build_critic_model_optimizer(
             self.config)
 

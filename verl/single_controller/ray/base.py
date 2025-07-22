@@ -62,8 +62,13 @@ class RayResourcePool(ResourcePool):
         self.detached = detached
 
     def get_placement_groups(self, strategy="STRICT_PACK", name=None):
+        # ? previously default strategy was STRICT_PACK (https://docs.ray.io/en/latest/ray-core/scheduling/placement-group.html#pgroup-strategy) but I changed it to PACK because... err: `(autoscaler +3m6s) Error: No available node types can fulfill resource request defaultdict(<class 'float'>, {'GPU': 8.0, 'CPU': 8.0}). Add suitable node types to this cluster to resolve this issue.` + why would it be STRICT_PACK??
         if self.pgs is not None:
             return self.pgs
+
+        print(f"DEBUG: in the get_placement_group with strategy {strategy}")
+        if strategy == "STRICT_PACK":
+            breakpoint()
 
         pg_name_prefix = name if name else \
             f"{self.name_prefix}verl_group_{'_'.join([str(count) for count in self._store])}:"
@@ -174,15 +179,17 @@ class RayClassWithInitArgs(ClassWithInitArgs):
 
 
 class RayWorkerGroup(WorkerGroup):
-
-    def __init__(self,
-                 resource_pool: RayResourcePool = None,
-                 ray_cls_with_init: RayClassWithInitArgs = None,
-                 bin_pack: bool = True,
-                 name_prefix: str = None,
-                 detached=False,
-                 worker_names=None,
-                 **kwargs) -> None:
+    def __init__(
+        self,
+        resource_pool: RayResourcePool = None,
+        ray_cls_with_init: RayClassWithInitArgs = None,
+        bin_pack: bool = True,
+        # ? one of the things bin_pack does downstream is set `placement_group` strategy="STRICT_PACK" which I turned off. I kept as True because I don't know what else it does downstream
+        name_prefix: str = None,
+        detached=False,
+        worker_names=None,
+        **kwargs,
+    ) -> None:
         super().__init__(resource_pool=resource_pool, **kwargs)
         self.ray_cls_with_init = ray_cls_with_init
         self.name_prefix = get_random_string(length=6) if name_prefix is None else name_prefix
@@ -216,7 +223,9 @@ class RayWorkerGroup(WorkerGroup):
 
         strategy = "PACK"
         if bin_pack:
-            strategy = "STRICT_PACK"
+            # ?used to be strategy = "STRICT_PACK" but this breaks my code
+            strategy = "PACK"
+
         pgs = resource_pool.get_placement_groups(strategy=strategy)
         world_size = resource_pool.world_size
         self._world_size = world_size

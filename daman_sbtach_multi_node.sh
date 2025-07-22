@@ -71,10 +71,11 @@ for ((i = 1; i <= worker_num; i++)); do
     echo "Starting WORKER $i at $node_i"
     srun --nodes=1 --ntasks=1 -w "$node_i" \
         ray start --address "$ip_head" \
-        --num-cpus "${SLURM_CPUS_PER_TASK}" --num-gpus "${NUM_GPUS}" --block &
+        --num-cpus "${SLURM_CPUS_PER_TASK}" --num-gpus "${NUM_GPUS_PER_NODE}" --block &
     sleep 5
 done
 
+./run_training_multinode.sh
 # echo "Starting training on all nodes..."
 
 # node=${nodes_array[0]}
