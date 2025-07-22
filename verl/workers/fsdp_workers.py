@@ -54,6 +54,16 @@ class ActorRolloutRefWorker(Worker):
         super().__init__()
         self.config = config
         import torch.distributed
+
+        # Check CUDA availability first
+        if not torch.cuda.is_available():
+            raise RuntimeError(
+                f"CUDA is not available on this worker. "
+                f"Check SLURM configuration and CUDA_VISIBLE_DEVICES. "
+                f"Node: {os.environ.get('SLURM_NODEID', 'unknown')}, "
+                f"Local rank: {os.environ.get('SLURM_LOCALID', 'unknown')}"
+            )
+
         if not torch.distributed.is_initialized():
             torch.distributed.init_process_group(backend="nccl")
 
@@ -94,6 +104,9 @@ class ActorRolloutRefWorker(Worker):
 
         # normalize config
         if self._is_actor:
+            if torch.distributed.get_rank() == 0:
+                # breakpoint()
+                pass
             self.config.actor.ppo_mini_batch_size //= (self.device_mesh.shape[0] // self.ulysses_sequence_parallel_size)
             self.config.actor.ppo_micro_batch_size //= (self.device_mesh.shape[0] //
                                                         self.ulysses_sequence_parallel_size)

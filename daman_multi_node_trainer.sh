@@ -14,10 +14,11 @@
 #? runs on the login server, I believe. Let me try to make this work before trying to run on one of the workers, which I want because I want to use the debugger
 
 export SLURM_JOB_NUM_NODES=2
+export NUMEXPR_MAX_THREADS=$(nproc)
 
 echo "job is starting on `hostname`"
 
-NUM_GPUS=$(nvidia-smi --query-gpu=name --format=csv,noheader | wc -l)
+NUM_GPUS_PER_NODE=$(nvidia-smi --query-gpu=name --format=csv,noheader | wc -l) #assume other node has identical resources
 
 nodes=$(scontrol show hostnames "$SLURM_JOB_NODELIST")
 nodes_array=($nodes)
@@ -43,12 +44,18 @@ port=6379
 ip_head=$head_node_ip:$port
 export ip_head
 echo "IP Head: $ip_head"
+export VLLM_HOST_IP=$ip_head
+#? https://github.com/vllm-project/vllm/pull/12667/files
 
 echo "Starting HEAD at $head_node"
+export TOKENIZERS_PARALLELISM=1 
+export NCCL_DEBUG=1
+export WARN RAY_DEBUG=1 
+export RAY_DEBUG_POST_MORTEM=1
+#?srun exports by default unless specified otherwise
 srun --nodes=1 --ntasks=1 -w "$head_node" \
-    env TOKENIZERS_PARALLELISM=1 NCCL_DEBUG=WARN RAY_DEBUG=1 RAY_DEBUG_POST_MORTEM=1
     ray start --head --node-ip-address="$head_node_ip" --port=$port \
-    --num-cpus "${SLURM_CPUS_PER_TASK}" --num-gpus "${NUM_GPUS}" --block &
+    --num-cpus "${SLURM_CPUS_PER_TASK}" --num-gpus "${NUM_GPUS_PER_NODE}" --block &
     #? I don't understand why this script using --block & (doesn't & run in the background and --block forces to run in the forground? )
 # __doc_head_ray_end__
 
@@ -68,16 +75,12 @@ for ((i = 1; i <= worker_num; i++)); do
     sleep 5
 done
 
-echo "Starting training on all nodes..."
-for node in "${nodes_array[@]}"; do
-    echo "Starting training on $node"
-    srun --nodes=1 --ntasks=1 -w "$node" ./run_training.sh &
-done
+# echo "Starting training on all nodes..."
 
-# Wait for all training jobs to complete
-wait
-echo "All training jobs completed"
-
+# node=${nodes_array[0]}
+# echo "Starting training on head node $node (the slave nodes should follow...)"
+# srun --nodes=1 --ntasks=1 -w "$node" ./run_training.sh &
+  
 # MODEL_SCALE='7B'
 # REWARD_TYPE='sigmoid'
 # ALPHA=0.1

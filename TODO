@@ -2,6 +2,7 @@
 POTENTIALLY CRUCIAL
 * get a pi-chart output of timining (seems that about 90% is in gen)
     * try to learn of more ways to track what GPUs are doing
+* log base model to the config
 
 MAYBE ACTUALLY USEFUL FOR RESEARCH 
 * a new random seed each time, but to log to hf for reproducability

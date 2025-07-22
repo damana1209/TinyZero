@@ -10,7 +10,6 @@ export RAY_DASHBOARD_PORT=8265
 #? do not set the mini or the micro batch size to anything smaller than the total number of GPUs since 
 #     config.actor_rollout_ref.actor.ppo_micro_batch_size //= dp_size <-- get a div by 0 err
 
-
 python3 -m verl.trainer.main_ppo \
 data.train_files=$DATA_DIR/train.parquet \
 data.val_files=$DATA_DIR/test.parquet \
@@ -31,14 +30,14 @@ actor_rollout_ref.actor.clip_ratio=0.2 \
 actor_rollout_ref.actor.ppo_epochs=1 \
 actor_rollout_ref.actor.shuffle=True \
 actor_rollout_ref.actor.grad_clip=1.0 \
-actor_rollout_ref.rollout.log_prob_micro_batch_size=4 \
+actor_rollout_ref.rollout.log_prob_micro_batch_size=$(($N_GPUS_PER_NODE * $N_NODE > 4 ? $N_GPUS_PER_NODE * $N_NODE : 4))  \
 actor_rollout_ref.rollout.tensor_model_parallel_size=$ROLLOUT_TP_SIZE \
 actor_rollout_ref.rollout.gpu_memory_utilization=0.5 \
-actor_rollout_ref.ref.log_prob_micro_batch_size=2 \
+actor_rollout_ref.ref.log_prob_micro_batch_size=$(($N_GPUS_PER_NODE * $N_NODE > 4 ? $N_GPUS_PER_NODE * $N_NODE : 4)) \
 critic.optim.lr=1e-5 \
 critic.model.path=$BASE_MODEL \
 critic.ppo_mini_batch_size=64 \
-critic.ppo_micro_batch_size=4 \
+critic.ppo_micro_batch_size=$(($N_GPUS_PER_NODE * $N_NODE > 4 ? $N_GPUS_PER_NODE * $N_NODE : 4)) \
 critic.model.enable_gradient_checkpointing=True \
 algorithm.kl_ctrl.kl_coef=0.001 \
 trainer.logger=['console','wandb'] \
