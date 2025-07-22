@@ -1,5 +1,6 @@
 NEXT STEPS
 
+* log question together with solution string.
 * Run on harder dataset and with somewhat better prompt engineering (ask Daman)
 * Andrea's reward function (best guess + uncertainty score)
 * logging of IDK rewards to understand why IDK is not getting picked up
@@ -7,6 +8,7 @@ NEXT STEPS
 POTENTIALLY V USEFUL
 
 * log the config parameters of each ray_actor (since they have derived )
+* weave integration
 
 WOULD BE NICE, EASY
 
