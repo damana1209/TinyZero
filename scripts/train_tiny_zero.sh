@@ -35,7 +35,7 @@ actor_rollout_ref.rollout.tensor_model_parallel_size=$ROLLOUT_TP_SIZE \
 actor_rollout_ref.rollout.gpu_memory_utilization=0.4 \
 actor_rollout_ref.ref.log_prob_micro_batch_size=$(($N_GPUS_PER_NODE * $N_NODE > 4 ? $N_GPUS_PER_NODE * $N_NODE : 4)) \
 critic.optim.lr=1e-5 \
-critic.model.path=$BASE_MODEL \
+critic.model.path="$BASE_MODEL" \
 critic.ppo_mini_batch_size=64 \
 critic.ppo_micro_batch_size=$(($N_GPUS_PER_NODE * $N_NODE > 4 ? $N_GPUS_PER_NODE * $N_NODE : 4)) \
 critic.model.enable_gradient_checkpointing=True \
@@ -49,9 +49,9 @@ trainer.nnodes=2 \
 trainer.save_freq=1000 \
 trainer.test_freq=20 \
 trainer.project_name=TinyZero \
-trainer.experiment_name=$EXPERIMENT_NAME \
+trainer.experiment_name="$EXPERIMENT_NAME" \
 trainer.total_epochs=15 \
-+description=$DESCRIPTION 
+"+description=$DESCRIPTION" \
 +trainer.global_seed=$GLOBAL_SEED 2>&1 | tee verl_demo.log
 
 #?changelog from Daman's last commit before mine

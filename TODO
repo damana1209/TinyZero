@@ -1,16 +1,22 @@
+NEXT STEPS
 
-POTENTIALLY CRUCIAL
-* log base model to the config
-* log the config parameters of each ray_actor
+* Run on harder dataset and with somewhat better prompt engineering (ask Daman)
+* Andrea's reward function (best guess + uncertainty score)
+* logging of IDK rewards to understand why IDK is not getting picked up
 
-MAYBE ACTUALLY USEFUL FOR RESEARCH
+POTENTIALLY V USEFUL
 
-* a new random seed each time, but to log to hf for reproducability
+* log the config parameters of each ray_actor (since they have derived )
+
+WOULD BE NICE, EASY
+
+* {not priority becuase we want to change reward function} make idk_reward a parameter of `run_countdown` or `train_tiny_zero` (currently its just set in file) -- pretty low priority since its already logged, but we could actually have quite a few errors with the current setup
+
+WOULD BE NICE, NOT EASY AFAIK
+
+* a new random seed each time and log it hf for reproducability
 * get a pi-chart output of timining (seems that about 90% is in gen)
   * try to learn of more ways to track what GPUs are doing
-
-WOULD BE NICE, NOT NEEDED
-* log avg reward for run
-* make idk_reward a parameter of `run_countdown` or `train_tiny_zero` (currently its just set in file) -- pretty low priority since its already logged, but we could actually have quite a few errors with the current setup
+* integrate with Docent.
 * in OCCUSIONAL QUALITY PRINT also print out the question (currently only the answer)
-
+˝
