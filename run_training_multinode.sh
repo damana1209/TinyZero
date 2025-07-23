@@ -13,12 +13,12 @@
 #SBATCH -o logs/slurm-%j.out
 
 
-DESCRIPTION=""
+TRAINING_RUN_DESCRIPTION=""
 while [[ $# -gt 0 ]]; do
   key="$1"
   case $key in
     --desc)
-      export DESCRIPTION="$2"
+      export TRAINING_RUN_DESCRIPTION="$2"
       shift # past argument
       shift # past value
       ;;
@@ -28,8 +28,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-echo "job is starting on `hostname` with \n DESC: ${DESCRIPTION}"
-
+echo "job is starting on `hostname` with \n DESC: ${TRAINING_RUN_DESCRIPTION}"
 
 # DATASET="countdown"
 # DATASET="countdown_idk"
@@ -43,8 +42,8 @@ export DATASET="lighteval/MATH_idk"
 # export CUDA_VISIBLE_DEVICES=0,1,2,3 #?idk if this is supposed to be 0,...,7 or 0,...,3 so I'll try to have this be set automaticly
 export N_NODE=2
 export N_GPUS_PER_NODE=4
-export VLLM_HOST_IP=172.28.81.248
-export BASE_MODEL="/work/nvme/betg/mshtepel/models/Qwen2.5-7B-Instruct"
+# export VLLM_HOST_IP=172.28.81.248 I think this isn't needed bc i haven't updated it and things didn't break
+export BASE_MODEL="/work/nvme/betg/mshtepel/models/Qwen2.5-7B"
 # export BASE_MODEL="/work/nvme/betg/mshtepel/models/Qwen2.5-7B-Instruct"
 # export BASE_MODEL="/work/nvme/betg/darora1/verifiers/Llama-3.2-1B"
 # export BASE_MODEL="/work/nvme/betg/darora1/verifiers/OctoThinker-1B-Short-Base"

@@ -3,21 +3,20 @@
 #SBATCH --mem=300g
 #SBATCH --nodes=2
 #SBATCH --gpus-per-node=4
-#SBATCH --cpus-per-task=16
+#SBATCH --cpus-per-task=30
 #SBATCH --job-name=run
 #SBATCH --partition=ghx4
-#SBATCH --time=24:00:00      # hh:mm:ss for the job
+#SBATCH --time=3:00:00      # hh:mm:ss for the job
 #SBATCH -e logs/slurm-%j.err
 #SBATCH -o logs/slurm-%j.out
 
-
-#? runs on the login server, I believe. Let me try to make this work before trying to run on one of the workers, which I want because I want to use the debugger
 
 export SLURM_JOB_NUM_NODES=2
 export NUMEXPR_MAX_THREADS=$(nproc)
 
 echo "job is starting on `hostname`"
 
+# this will give 2 nodes if nvidia-smi fails because of the err message
 NUM_GPUS_PER_NODE=$(nvidia-smi --query-gpu=name --format=csv,noheader | wc -l) #assume other node has identical resources
 
 nodes=$(scontrol show hostnames "$SLURM_JOB_NODELIST")
@@ -44,14 +43,14 @@ port=6379
 ip_head=$head_node_ip:$port
 export ip_head
 echo "IP Head: $ip_head"
-export VLLM_HOST_IP=$ip_head
+export VLLM_HOST_IP=$ip_head # I think this isn't needed bc i haven't updated it and things didn't break
 #? https://github.com/vllm-project/vllm/pull/12667/files
 
 echo "Starting HEAD at $head_node"
 export TOKENIZERS_PARALLELISM=1 
-export NCCL_DEBUG=1
-export WARN RAY_DEBUG=1 
-export RAY_DEBUG_POST_MORTEM=1
+# export NCCL_DEBUG=1
+# export WARN RAY_DEBUG=1 
+# export RAY_DEBUG_POST_MORTEM=1
 #?srun exports by default unless specified otherwise
 srun --nodes=1 --ntasks=1 -w "$head_node" \
     ray start --head --node-ip-address="$head_node_ip" --port=$port \
@@ -61,7 +60,7 @@ srun --nodes=1 --ntasks=1 -w "$head_node" \
 
 # __doc_worker_ray_start__
 # optional, though may be useful in certain versions of Ray < 1.0.
-sleep 10
+sleep 15
 
 # number of nodes other than the head node
 worker_num=$((SLURM_JOB_NUM_NODES - 1))
@@ -71,11 +70,19 @@ for ((i = 1; i <= worker_num; i++)); do
     echo "Starting WORKER $i at $node_i"
     srun --nodes=1 --ntasks=1 -w "$node_i" \
         ray start --address "$ip_head" \
-        --num-cpus "${SLURM_CPUS_PER_TASK}" --num-gpus "${NUM_GPUS_PER_NODE}" --block &
+        --num-cpus "${SLURM_CPUS_PER_TASK}" --num-gpus "${NUM_GPUS_PER_NODE}" --block & 
     sleep 5
 done
 
-./run_training_multinode.sh
+sleep 10
+ray status
+ray list nodes
+
+
+#TODO currently not passing in stuff like SLURM_JOB_NUM_NODES
+
+./run_training_multinode.sh -desc "trying the fixed idk reward math training on a base model (sugguested by Daman)" 
+
 # echo "Starting training on all nodes..."
 
 # node=${nodes_array[0]}

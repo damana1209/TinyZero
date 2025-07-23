@@ -51,7 +51,7 @@ trainer.test_freq=20 \
 trainer.project_name=TinyZero \
 trainer.experiment_name="$EXPERIMENT_NAME" \
 trainer.total_epochs=15 \
-"+description=$DESCRIPTION" \
++description="${TRAINING_RUN_DESCRIPTION}" \
 +trainer.global_seed=$GLOBAL_SEED 2>&1 | tee verl_demo.log
 
 #?changelog from Daman's last commit before mine
