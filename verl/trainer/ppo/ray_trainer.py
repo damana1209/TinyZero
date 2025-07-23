@@ -24,7 +24,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from enum import Enum
 from pprint import pprint
-from typing import Type, Dict
+from typing import Type, Dict, Tuple
 
 from verl.utils.reward_score.countdown import CountdownStatus
 import numpy as np
@@ -223,7 +223,11 @@ def add_metric_with_description(
     descriptions_dict[key] = description
 
 
-def compute_data_metrics(batch, use_critic=True):
+def update_metrics_with_status_codes(metrics:dict, descriptions:dict, status_codes:torch.Tensor[MathStatus])-> Tuple[dict, dict] :
+    hjbsadhjsabdhjsab not implemented
+
+
+def compute_data_metrics(batch:DataProto, use_critic=True):
     """
     the standard function to compute metrics from all the data returned from a single PPO iteration.
 
@@ -239,54 +243,7 @@ def compute_data_metrics(batch, use_critic=True):
                 logger.log(data=metrics, step=self.global_steps)
     ```
     """
-    # MATAN: Debug attention mask issue
-    # print("=== DEBUGGING ATTENTION MASK ===")
-    # responses = batch.batch["responses"]
 
-    # # Check token IDs
-    # pad_token_id = 151643  # Based on your findings
-    # print(f"Pad token ID: {pad_token_id}")
-
-    # # Get the corrected response info
-    # response_info = _compute_response_info(batch)
-    # corrected_response_mask = response_info["response_mask"]
-
-    # # Check first few responses
-    # for i in [0, 1]:
-    #     response = responses[i]
-    #     print(f"\nResponse {i}:")
-
-    #     # Find pad positions
-    #     pad_positions = (response == pad_token_id).nonzero().flatten()
-    #     if len(pad_positions) > 0:
-    #         first_pad = pad_positions[0].item()
-    #         print(f"  First pad at: {first_pad}")
-    #         print(f"  Content length: {first_pad}")
-    #     else:
-    #         print(f"  No padding found, full length: {response.shape[0]}")
-
-    #     # Check corrected response mask
-    #     corrected_valid_length = corrected_response_mask[i].sum().item()
-    #     print(f"  Corrected response mask says valid length: {corrected_valid_length}")
-    #     print(
-    #         f"  Corrected mask last 10 values: {corrected_response_mask[i][-10:].tolist()}"
-    #     )
-
-    #     # Verify fix worked
-    #     if len(pad_positions) > 0:
-    #         expected_valid = pad_positions[0].item()
-    #         if expected_valid == corrected_valid_length:
-    #             print(
-    #                 f"  ✓ FIX WORKED! Expected: {expected_valid}, Got: {corrected_valid_length}"
-    #             )
-    #         else:
-    #             print(
-    #                 f"  ✗ FIX FAILED! Expected: {expected_valid}, Got: {corrected_valid_length}"
-    #             )
-    # print("=== END DEBUG ===\n")
-
-    # assert False, "I wrote `_matan_data_metrics` because I had relatively low confidence in "
-    # TODO: add response length --CHANGE THIS FUNCTION TO THE WAY THESE ARE REFERED TO
     sequence_score: torch.Tensor = (
         batch.batch["token_level_scores"]
         .sum(-1)
@@ -295,35 +252,11 @@ def compute_data_metrics(batch, use_critic=True):
         )  # got some error that was using long -- converted to float
     )
     sequence_reward = batch.batch["token_level_rewards"].sum(-1)
-    status_list = batch.non_tensor_batch["statuses"]
-    # ? figure out how these come about
-    rewards_for_idk_list = batch.non_tensor_batch["idk_rewards"].flatten().mean()
 
     advantages = batch.batch["advantages"]
     returns = batch.batch["returns"]
     # Count number of 0.5s in sequence_score and calculate average
     # idks = torch.logical_and(sequence_score > 0.2, sequence_score < 0.9).float().mean().item()
-    idk_ratio = (
-        np.count_nonzero(status_list == MathStatus.IDK) / len(status_list)
-        if len(status_list) > 0
-        else 0.0
-    )
-    correct_ratio = (
-        np.count_nonzero(status_list == MathStatus.RIGHT) / len(status_list)
-        if len(status_list) > 0
-        else 0.0
-    )
-    wrong_ans_good_format_ratio = (
-        np.count_nonzero(status_list == MathStatus.WRONG_ANS_GOOD_FORMAT)
-        / len(status_list)
-        if len(status_list) > 0
-        else 0.0
-    )
-    bad_format_ratio = (
-        np.count_nonzero(status_list == MathStatus.BAD_FORMAT) / len(status_list)
-        if len(status_list) > 0
-        else 0.0
-    )
     max_response_length = batch.batch["responses"].shape[-1]
 
     prompt_mask = batch.batch["attention_mask"][:, :-max_response_length].bool()
@@ -372,42 +305,19 @@ def compute_data_metrics(batch, use_critic=True):
     metrics = {}
     descriptions = {}
 
-    # Add metrics with descriptions using helper function
-    add_metric_with_description(
-        metrics,
-        descriptions,
-        "train/idk_ratio",
-        idk_ratio,
-        "Proportion of responses where model said 'I don't know'",
-    )
-    add_metric_with_description(
-        metrics,
-        descriptions,
-        "train/correct_ratio",
-        correct_ratio,
-        "Proportion of responses with correct mathematical answers",
-    )
-    add_metric_with_description(
-        metrics,
-        descriptions,
-        "train/wrong_ans_good_format_ratio",
-        wrong_ans_good_format_ratio,
-        "Proportion of responses with incorrect answers but valid format",
-    )
-    add_metric_with_description(
-        metrics,
-        descriptions,
-        "train/bad_format_ratio",
-        bad_format_ratio,
-        "Proportion of responses with invalid formatting",
-    )
-    add_metric_with_description(
-        metrics,
-        descriptions,
-        "train/avg_idk_reward",
-        rewards_for_idk_list,
-        "Average reward given for 'I don't know' responses",
-    )
+    #? rewards which depend on the reward function here
+    if some condition:
+        i think rewards for idk_list come as a list for each instead of value and i need to average them
+        add_metric_with_description(
+            metrics,
+            descriptions,
+            "train/avg_idk_reward",
+            rewards_for_idk_list,
+            "Average reward given for 'I don't know' responses",
+        )
+
+    #status codes 
+    metrics, descriptions = update_metrics_with_status_codes(metrics, descriptions, batch.non_tensor_batch["reward_status_code"]) 
 
     # Score metrics
     add_metric_with_description(
@@ -1101,6 +1011,7 @@ class RayPPOTrainer(object):
 
         self.global_steps = 0
 
+        # ?i think what this did is add a glossaty table which is not that useful, but i want description on hover...
         # # Log metric descriptions once at the beginning of training
         # metric_descriptions = {
         #     "train/idk_ratio": "Proportion of responses where model said 'I don't know'",
@@ -1150,35 +1061,6 @@ class RayPPOTrainer(object):
                         gen_batch_output = self.actor_rollout_wg.generate_sequences(
                             gen_batch
                         )
-
-                    # MATAN: Debug generation output
-                    # print("=== POST-GENERATION DEBUG ===")
-                    # responses = gen_batch_output.batch["responses"]
-                    # attention_mask = gen_batch_output.batch["attention_mask"]
-                    # print(f"Generated attention mask shape: {attention_mask.shape}")
-                    # print(f"Generated responses shape: {responses.shape}")
-
-                    # # Check a few samples
-                    # for i in [0, 1]:
-                    #     response = responses[i]
-                    #     resp_mask = attention_mask[i, -responses.shape[1] :]
-
-                    #     # Find pad tokens (assumed to be 151643 based on our debugging)
-                    #     pad_positions = (response == 151643).nonzero().flatten()
-                    #     if len(pad_positions) > 0:
-                    #         first_pad = pad_positions[0].item()
-                    #         print(f"  Response {i}: First pad at {first_pad}")
-                    #         print(
-                    #             f"  Response {i}: Attention mask valid length: {resp_mask.sum().item()}"
-                    #         )
-                    #         print(
-                    #             f"  Response {i}: Last 10 attention values: {resp_mask[-10:].tolist()}"
-                    #         )
-                    #         if first_pad != resp_mask.sum().item():
-                    #             print(
-                    #                 f"  *** GENERATION BUG: Expected {first_pad}, got {resp_mask.sum().item()} ***"
-                    #             )
-                    # print("=== END POST-GENERATION DEBUG ===")
 
                     # ? I think the following three assignement statements are only relavent when we we generate several responses for the same prompt (i.e. actor_rollout_ref.rollout.n > 1) we are currently not doing this.
                     batch.non_tensor_batch["uid"] = np.array(
@@ -1231,28 +1113,32 @@ class RayPPOTrainer(object):
                         #     reward_fn_ret, logger.wandb.config = self.reward_fn(batch)
 
                         # else
-                        # TODO set wandb init here to the params returned by the reward fn
-                        (reward_fn_ret, _) = self.reward_fn(batch)
+                        reward_fn_ret = self.reward_fn(batch)
 
-                        # ? unpack the return of the reward fn on the batch (calls RewardManager which calls )
+                        # TODO reward_float and MathStatus {change "MathStatus" to just status} required
+                        # ? unpack the return of the reward fn on the batch.
                         if "reward_float" in reward_fn_ret.keys():
-                            # ? I think this is actually a pretty reasonable pattern? The reward fn returns the information in the 'plainest' way possible, and the trainer converts it to its desired format
                             temp = torch.zeros_like(batch.batch["responses"])
+                            # TODO replace with more efficient implementation
+                            """
+                            batch.batch["token_level_scores"][(arnage((batch.batch["responses"].shape[0]), reward_fn_ret["valid_response_length"])] = reward_fn_ret["reward_float"]
+                            """
+
                             for i in range(batch.batch["responses"].shape[0]):
-                                # ? I'm kinda weirded out by the fact that valid_response_length is always 1024 -- shouldn't it be like... eh...
                                 temp[
                                     i, reward_fn_ret["valid_response_length"][i] - 1
                                 ] = reward_fn_ret["reward_float"][i]
                             batch.batch["token_level_scores"] = temp
+                        else:
+                            raise KeyError(
+                                f"reward_fn returns must have a `reward_float` field but {reward_fn_ret[0]=} did not."
+                            )
 
-                        if "reward_status_code" in reward_fn_ret.keys():
-                            batch.non_tensor_batch["statuses"] = np.array(
-                                reward_fn_ret["reward_status_code"], dtype=object
-                            )
-                        if "cur_reward_for_idk" in reward_fn_ret.keys():
-                            batch.non_tensor_batch["idk_rewards"] = np.array(
-                                reward_fn_ret["cur_reward_for_idk"], dtype=object
-                            )
+                        # for all the returns which do not require special handling
+                        for k, v in reward_fn_ret.items():
+                            batch.non_tensor_batch[k] = v
+
+                        # ? reward_ret handling ends
 
                         # compute rewards. apply_kl_penalty if available
                         if not self.config.actor_rollout_ref.actor.use_kl_loss:

@@ -32,6 +32,10 @@ class Tracking(object):
         default_backend: Union[str, List[str]] = "console",
         config=None,
     ):
+        self.project_name = project_name
+        self.experiment_name = experiment_name
+        self.config = config
+
         if isinstance(default_backend, str):
             default_backend = [default_backend]
         for backend in default_backend:
@@ -46,7 +50,7 @@ class Tracking(object):
                 assert backend in self.supported_backend, f"{backend} is not supported"
 
         self.logger = {}
-        self._descriptions_logged = (
+        self._descriptions_logged: set = (
             set()
         )  # Track which descriptions we've already logged
 
@@ -75,9 +79,12 @@ class Tracking(object):
             self.console_logger = LocalLogger(print_to_console=True)
             self.logger["console"] = self.console_logger
 
+        # ? matan added
+        self.previously_addded_reward_fn_configs: list[str] = []
+
     def log(self, data, step, backend=None):
         """
-        Enhanced log method that supports metric descriptions.
+        Enhanced log method that supports metric descriptions. #? this might have been added by me but doesn't work
 
         If data contains a '_descriptions' key, those descriptions will be logged
         as metadata to help document what each metric means.
@@ -129,6 +136,25 @@ class Tracking(object):
                         print("--- End Descriptions ---\n")
 
                 logger_instance.log(data=data, step=step)
+
+    def update_wandb_config_with_reward_fn(self, reward_fn_desc: dict) -> None:
+        """
+        reward_fn_desc must have a name parameter to check equality to other reward_fn_desc
+        DOES NOT CHANGE CONFIG only wandb-s config becuase I think that's the pattern mandatated by wandb? https://docs.wandb.ai/guides/track/config/#set-the-configuration-throughout-your-script
+        """
+        breakpoint() #? make sure to see what this is doing once
+        if "wandb" not in self.logger.keys():
+            raise ValueError("this logger is not using wandb")
+
+        if reward_fn_desc.name not in self.previously_addded_reward_fn_configs:
+            self.previously_addded_reward_fn_configs.append(reward_fn_desc.name)
+            with self.logger["wandb"].init(
+                project=self.project_name, name=self.experiment_name, config=self.config
+            ) as run: 
+                if 'reward_fns' not in run.config.keys()
+                    run.config['reward_fns'] = []
+                run.config['reward_fns'].append(reward_fn_desc)
+                print(f"DEBUG: added the configuration of reward fn {reward_fn_desc.name} to wandb config!")
 
 
 class _MlflowLoggingAdapter:

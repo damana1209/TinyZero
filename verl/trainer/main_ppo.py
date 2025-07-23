@@ -29,6 +29,7 @@ torch.set_default_device("cuda")
 from collections import defaultdict
 from collections.abc import Callable
 from typing import Any, Optional, Tuple
+from verl.utils.tracking import Tracking  # ? this is only for the type annotation
 
 # REWARD_DATA_SOURCE_COMPTAB_DICT = {
 #     "bestguess_and_uncertainty_est": ["lighteval/MATH_idk"]
@@ -49,8 +50,8 @@ from typing import Any, Optional, Tuple
 
 
 def _select_rm_score_fn(
-    data_source: str, config: dict
-) -> Tuple[Callable[..., dict], dict]:
+    data_source: str, logger: Tracking | None
+) -> Tuple[Callable[..., dict]]:
     """
     selects the reward function and returns an updated config which, where the key reward_fn corrospond to a dict of all the relavent values of the reward function
     """
@@ -67,28 +68,29 @@ def _select_rm_score_fn(
     # new math
     elif data_source == "openai/gsm8k_idk":
         # return gsm8k.compute_score_idk
-        return math.compute_score_idk_rs, config
+        return math.compute_score_idk_rs
 
     elif data_source == "lighteval/MATH_idk":
-        return math.compute_score_idk_rs, config
+        return math.compute_score_idk_rs
 
     elif data_source == "lighteval/MATH_bestguess_and_uncertainty_est":
-        from reward_fn_data.bestguess_and_uncertainty_est import update_config
+        if logger is not None:
+            from reward_fn_data.bestguess_and_uncertainty_est import everything_dict
 
-        return math.bestguess_and_uncertainty_est, update_config(
-            config
-        ) if config is not None else None
+            logger.update_wandb_config_with_reward_fn(everything_dict)
+
+        return math.bestguess_and_uncertainty_est
 
     # countdown
     elif "multiply" in data_source or "arithmetic" in data_source:
-        return multiply.compute_score, config
+        return multiply.compute_score
     elif "countdown_idk_and_answer" in data_source:
-        return countdown.compute_score_idk_and_answer, config
+        return countdown.compute_score_idk_and_answer
         # return countdown.compute_score_idk_and_answer_rs
     elif "countdown_idk" in data_source:
-        return countdown.compute_score_idk_rs, config
+        return countdown.compute_score_idk_rs
     elif "countdown" in data_source:
-        return countdown.compute_score, config
+        return countdown.compute_score
     else:
         raise NotImplementedError(f"{data_source}")
 
@@ -96,16 +98,16 @@ def _select_rm_score_fn(
 class RewardManager:
     """The reward manager."""
 
-    def __init__(self, tokenizer, num_examine, reward: Optional[str] = None) -> None:
+    def __init__(self, tokenizer, num_examine):
         self.tokenizer = tokenizer
         self.num_examine = num_examine  # the number of batches of decoded responses to print to the console
-        self.reward = reward
+        # self.reward = reward
 
-    def __call__(self, data: DataProto, config=None) -> Tuple[dict, dict]:
-        """We will expand this function gradually based on the available datasets.
-        we call with config to update it which will do only once when using a data_source for the first time.
+    def __call__(self, data: DataProto, logger=None) -> Tuple[dict, dict]:
+        """
         Its annoying to do this in __call__ but the codebase wanted to initalize a rewardManager while being flexible on what data sources it can take an dI don't want to break it
 
+        should return the "rawest data" and it will be processed to necessery form in `fit()`
         """
 
         # If there is rm score, we directly return rm score. Otherwise, we compute via rm_score_fn
@@ -152,7 +154,7 @@ class RewardManager:
 
             # select rm_score
             data_source = data_item.non_tensor_batch["data_source"]
-            compute_score_fn, config = _select_rm_score_fn(data_source, config)
+            compute_score_fn = _select_rm_score_fn(data_source, logger)
             # breakpoint()
             compute_score_fn_return: dict = compute_score_fn(
                 solution_str=response_str, ground_truth=ground_truth
@@ -182,7 +184,7 @@ class RewardManager:
                 # )
                 already_print_data_sources[data_source] += 1
                 print(concat_prompt_and_response_str)
-        return compute_score_fn_returns, config
+        return compute_score_fn_returns
 
 
 import ray

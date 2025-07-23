@@ -18,6 +18,7 @@ WOULD BE NICE, EASY
 * move all scripts to folder -- clean up generally
 * {not priority becuase we want to change reward function} make idk_reward a parameter of `run_countdown` or `train_tiny_zero` (currently its just set in file) -- pretty low priority since its already logged, but we could actually have quite a few errors with the current setup
 * make sure that the system prompt / reward is easily visible
+* README note about #? better comments
 
 WOULD BE NICE, NOT EASY AFAIK
 
