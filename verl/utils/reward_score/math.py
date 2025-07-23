@@ -13,9 +13,11 @@
 # limitations under the License.
 # Adapted from https://github.com/EleutherAI/lm-evaluation-harness/blob/main/lm_eval/tasks/hendrycks_math/utils.py
 import random
-import re
 from typing import Tuple, Final
 from enum import Enum
+
+from numpy import extract
+from .reward_function_utils import is_equiv, extract_solution, to_unit_interval
 
 
 class MathStatus(Enum):
@@ -24,110 +26,73 @@ class MathStatus(Enum):
     RIGHT = 2
     IDK = 3
 
-
-def _ORIGINAL_extract_solution(solution_str):
-    # ? this is the original extract solution but does not fit the prompt that we use (from `math_dataset`)
-    # ? "Let's think step by step and output the final answer within \\boxed{}. If you're unsure of how to solve the problem, just say \\boxed{I don't know}"
-    """Check if the solution string is in a valid format."""
-
-    if "Assistant:" in solution_str:
-        solution_str = solution_str.split("Assistant:", 1)[1]
-
-    if solution_str.count("<answer>") > 1:
-        return None
-    if "User:" in solution_str:
-        return None
-    if solution_str.count("<think>") > 1 or solution_str.count("</think>") != 1:
-        return None
-
-    answer_pattern = r"<answer>(.*?)</answer>"
-    match = re.finditer(answer_pattern, solution_str, re.DOTALL)
-    matches = list(match)
-    if matches:
-        final_answer = matches[-1].group(1).strip()
-    else:
-        final_answer = None
-    return final_answer
+# TODO create a dict class which standardizes the return type
 
 
-# def compute_score(solution_str, ground_truth) -> float:
-#     retval = 0.0
-#     to_print = random.randint(1, 64) == 1
-#     if to_print:
-#         print(f"Solution string: {solution_str}")
-#     try:
-#         extracted_solution = extract_solution(solution_str)
-#         if extracted_solution is None:
-#             retval = 0.0
-#             return retval, MathStatus.BAD_FORMAT
-
-#         string_in_last_boxed = last_boxed_only_string(extracted_solution)
-#         if string_in_last_boxed is not None:
-#             answer = remove_boxed(string_in_last_boxed)
-#             if is_equiv(answer, ground_truth):
-#                 retval = 1.0
-#                 return retval, MathStatus.RIGHT
-#             else:
-#                 retval = 0.1  # format reward
-#                 return retval, MathStatus.WRONG_ANS_GOOD_FORMAT_ANS_GOOD_FORMAT
-#     except Exception as e:
-#         print(e)
-
-#     return retval, MathStatus.BAD_FORMAT
-
-
-def extract_solution(solution_str: str) -> None | str:
+def bestguess_and_uncertainty_est(solution_str: str, ground_truth: str):
     """
-    solution_str: only the text returned by the LLM. ASSUMING IT IS RAW -- i.e. `\b` is the charecters `\` and `b` not backspace
-    The string had "good" formatting if there is only one \\boxed{X} for some X.
-    If the string is good, X is returned, else None (indicating bad formatting)
+    ! remember to change the math_dataset with any formatting changes (need to tell the model)
+    The assistant is encourged to think step by step and note its uncertainty. It is prompted to respond with both is 'best guess' and an 'uncertainty score' and is graded on being correct and calibrated (i.e. uncertainty inversly correlated with correctness). (see `math_dataset` for the complete prompt)
+    FORMAT: we will check there is exactly one `\\boxed{your_best_guess_here}` and exactly one `After careful consideration of the question, my thinking, and my final answer, I estimate the probability that my answer is correct is \\uncertainty{{[0,1]]}` (o.w. bad format)
+    REWARD:
+    IS_GOOD * IS_GOOD_FORMAT_REWARD +
+    IS_CORRECT * IS_CORRECT_REWARD +
+    (IS_CORRECT - uncertainty) * IDK_REWARD +
+    min (1 - uncertainty, uncertainty) * NOT_EXTREME_REWARD
     """
-    DELIMITER = r"\boxed{"
-    par_mapping = {"(": ")", "{": "}", "[": "]", "<": ">"}
+    from reward_fn_data.bestguess_and_uncertainty_est import (
+        formatting_reward,
+        calibration_reward_multiplier,
+        hedging_reward_multipler,
+        correctness_reward_multiplier,
+    )
 
-    # checked that there is only one answer
-    if solution_str.rfind(DELIMITER) != solution_str.find(DELIMITER):
-        return None
-
+    best_guess = extract_solution(solution_str=solution_str)
+    uncertainty: str = extract_solution(
+        solution_str=solution_str,
+        DELIMITER=r"After careful consideration of the question, my thinking, and my final answer, I estimate the probability that my answer is correct is \\uncertainty{",
+    )
+    uncertainty_float = to_unit_interval(uncertainty)
+    # bad format
+    if best_guess is None or uncertainty is None or uncertainty_float is None:
+        return {
+            "reward_float": 0,
+            "reward_status_code": MathStatus.BAD_FORMAT,
+        }
     else:
-        del_idx = solution_str.find(DELIMITER)
-        X = ""
-        pars_stack: list = []
+        is_correct = is_equiv(best_guess, ground_truth)
+        correctness_reward = is_correct * correctness_reward_multiplier
+        calibration_reward = (
+            float(is_correct) - uncertainty_float
+        ) * calibration_reward_multiplier
+        hedging_reward = (
+            min(1 - uncertainty_float, uncertainty_float) * hedging_reward_multipler
+        )
+        total_reward = (
+            formatting_reward + correctness_reward + calibration_reward + hedging_reward
+        )
+        return {
+            "reward_float": total_reward,
+            "reward_status_code": (
+                MathStatus.RIGHT if is_correct else MathStatus.WRONG_ANS_GOOD_FORMAT
+            ),
+            "uncertainty": uncertainty_float,
+            "correctness_reward": correctness_reward,
+            "calibration_reward": calibration_reward,
+            "hedging_reward": hedging_reward,
+            "formatting_reward": formatting_reward,
+        }
+        # TODO I could imagine better prints, but for now lets run.
 
-        if del_idx != -1:  # there was at least one instance
-            for char in solution_str[del_idx + len(DELIMITER) :]:
-                # is char open par?
-                if char in par_mapping.keys():
-                    pars_stack = pars_stack + [
-                        char
-                    ]  # push the open par to the top of the stack
-                # is char close par?
-                elif char in par_mapping.values():
-                    # closing the first '{'
-                    if len(pars_stack) == 0 and char == "}":
-                        return X
 
-                    # not closing any valid opening
-                    elif len(pars_stack) == 0:
-                        return None
-
-                    # closing a valid par (pars_stack has 1 element due to the above check)
-                    elif par_mapping[pars_stack[-1]] == char:
-                        pars_stack.pop()
-
-                # its just a regular char
-                else:
-                    pass
-
-                X = X + str(char)
-
-            # if we did not return from finding '}' then the DELIMITER was not properly closed
-        # if we did not have 1 del_idx or we existed
-        return None
+###########################################
+###########################################
+###########################################
 
 
 # TODO move these into a global config
 # TODO incorporate it in the MathStatus class above?
+idk_max_reward = 0.7
 running_acc = 0.7
 ema_coeff = 0.999
 idk_min_reward = 0.1  # the real reward is the base accumlator
@@ -139,10 +104,10 @@ reward_dict = {
 
 
 def compute_score_idk_rs(
-    solution_str: str, ground_truth: str, idk_max_reward=0.7
+    solution_str: str, ground_truth: str
 ) -> dict:  # Tuple[float, Enum, float]:
     """
-    #! tuned off reward shipping for now by setting
+    #! turned off reward shipping for now by setting
     solution_str: only the model's response decoded to str
     ground_truth: the ground truth answer to the question given as a str
     idk_max_reward: the maximum reward we will give for idk (starts at running_acc as above and converges to the model current reward)
@@ -214,204 +179,3 @@ def compute_score_idk_rs(
         )
 
     return ret
-
-
-def is_equiv(str1: str, str2: str, verbose=False):
-    if str1 is None and str2 is None:
-        print("WARNING: Both None")
-        return True
-    if str1 is None or str2 is None:
-        return False
-
-    try:
-        ss1 = strip_string(str1)
-        ss2 = strip_string(str2)
-        if verbose:
-            print(ss1, ss2)
-        return ss1 == ss2
-    except Exception:
-        return str1 == str2
-
-
-# string normalization from https://github.com/EleutherAI/lm-evaluation-harness/blob/master/lm_eval/tasks/hendrycks_math.py
-
-
-def remove_boxed(s):
-    if "\\boxed " in s:
-        left = "\\boxed "
-        assert s[: len(left)] == left
-        return s[len(left) :]
-
-    left = "\\boxed{"
-
-    assert s[: len(left)] == left
-    assert s[-1] == "}"
-
-    return s[len(left) : -1]
-
-
-# def last_boxed_only_string(string: str):
-#     idx = string.rfind("\\boxed")
-#     if "\\boxed " in string:
-#         return "\\boxed " + string.split("\\boxed ")[-1].split("$")[0]
-#     if idx < 0:
-#         idx = string.rfind("\\fbox")
-#         if idx < 0:
-#             return None
-
-#     i = idx
-#     right_brace_idx = None
-#     num_left_braces_open = 0
-#     while i < len(string):
-#         if string[i] == "{":
-#             num_left_braces_open += 1
-#         if string[i] == "}":
-#             num_left_braces_open -= 1
-#             if num_left_braces_open == 0:
-#                 right_brace_idx = i
-#                 break
-#         i += 1
-
-#     if right_brace_idx is None:
-#         retval = None
-#     else:
-#         retval = string[idx : right_brace_idx + 1]
-
-#     return retval
-
-
-def fix_fracs(string):
-    substrs = string.split("\\frac")
-    new_str = substrs[0]
-    if len(substrs) > 1:
-        substrs = substrs[1:]
-        for substr in substrs:
-            new_str += "\\frac"
-            if substr[0] == "{":
-                new_str += substr
-            else:
-                try:
-                    assert len(substr) >= 2
-                except AssertionError:
-                    return string
-                a = substr[0]
-                b = substr[1]
-                if b != "{":
-                    if len(substr) > 2:
-                        post_substr = substr[2:]
-                        new_str += "{" + a + "}{" + b + "}" + post_substr
-                    else:
-                        new_str += "{" + a + "}{" + b + "}"
-                else:
-                    if len(substr) > 2:
-                        post_substr = substr[2:]
-                        new_str += "{" + a + "}" + b + post_substr
-                    else:
-                        new_str += "{" + a + "}" + b
-    string = new_str
-    return string
-
-
-def fix_a_slash_b(string):
-    if len(string.split("/")) != 2:
-        return string
-    a = string.split("/")[0]
-    b = string.split("/")[1]
-    try:
-        a = int(a)
-        b = int(b)
-        assert string == "{}/{}".format(a, b)
-        new_string = "\\frac{" + str(a) + "}{" + str(b) + "}"
-        return new_string
-    except AssertionError:
-        return string
-
-
-def remove_right_units(string):
-    # "\\text{ " only ever occurs (at least in the val set) when describing units
-    if "\\text{ " in string:
-        splits = string.split("\\text{ ")
-        assert len(splits) == 2
-        return splits[0]
-    else:
-        return string
-
-
-def fix_sqrt(string):
-    if "\\sqrt" not in string:
-        return string
-    splits = string.split("\\sqrt")
-    new_string = splits[0]
-    for split in splits[1:]:
-        if split[0] != "{":
-            a = split[0]
-            new_substr = "\\sqrt{" + a + "}" + split[1:]
-        else:
-            new_substr = "\\sqrt" + split
-        new_string += new_substr
-    return new_string
-
-
-def strip_string(string):
-    # linebreaks
-    string = string.replace("\n", "")
-
-    # remove inverse spaces
-    string = string.replace("\\!", "")
-
-    # replace \\ with \
-    string = string.replace("\\\\", "\\")
-
-    # replace tfrac and dfrac with frac
-    string = string.replace("tfrac", "frac")
-    string = string.replace("dfrac", "frac")
-
-    # remove \left and \right
-    string = string.replace("\\left", "")
-    string = string.replace("\\right", "")
-
-    # Remove circ (degrees)
-    string = string.replace("^{\\circ}", "")
-    string = string.replace("^\\circ", "")
-
-    # remove dollar signs
-    string = string.replace("\\$", "")
-
-    # remove units (on the right)
-    string = remove_right_units(string)
-
-    # remove percentage
-    string = string.replace("\\%", "")
-    string = string.replace("\%", "")  # noqa: W605
-
-    # " 0." equivalent to " ." and "{0." equivalent to "{." Alternatively, add "0" if "." is the start of the string
-    string = string.replace(" .", " 0.")
-    string = string.replace("{.", "{0.")
-    # if empty, return empty string
-    if len(string) == 0:
-        return string
-    if string[0] == ".":
-        string = "0" + string
-
-    # to consider: get rid of e.g. "k = " or "q = " at beginning
-    if len(string.split("=")) == 2:
-        if len(string.split("=")[0]) <= 2:
-            string = string.split("=")[1]
-
-    # fix sqrt3 --> sqrt{3}
-    string = fix_sqrt(string)
-
-    # remove spaces
-    string = string.replace(" ", "")
-
-    # \frac1b or \frac12 --> \frac{1}{b} and \frac{1}{2}, etc. Even works with \frac1{72} (but not \frac{72}1). Also does a/b --> \\frac{a}{b}
-    string = fix_fracs(string)
-
-    # manually change 0.5 --> \frac{1}{2}
-    if string == "0.5":
-        string = "\\frac{1}{2}"
-
-    # NOTE: X/Y changed to \frac{X}{Y} in dataset, but in simple cases fix in case the model output is X/Y
-    string = fix_a_slash_b(string)
-
-    return string

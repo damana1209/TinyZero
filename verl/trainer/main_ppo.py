@@ -15,6 +15,7 @@
 Note that we don't combine the main with ray_trainer as ray_trainer is used by other main.
 """
 
+from huggingface_hub.errors import UnknownError
 from verl import DataProto
 import torch
 from verl.utils.reward_score import gsm8k, math, multiply, countdown
@@ -27,32 +28,67 @@ torch.set_default_dtype(torch.bfloat16)
 torch.set_default_device("cuda")
 from collections import defaultdict
 from collections.abc import Callable
-from typing import Any
+from typing import Any, Optional, Tuple
+
+# REWARD_DATA_SOURCE_COMPTAB_DICT = {
+#     "bestguess_and_uncertainty_est": ["lighteval/MATH_idk"]
+# }
+# # ? if this grows a lot we can add the functions into this dict and use it to map, instead of the if statement. For now this is not necessery
+
+# ? can use this if several rewards for the same dataset
+# def check_data_source_and_reward_are_compatible(
+#     data_source: str, reward: Optional[str]
+# ):
+#     if reward is None:  # just pick the default reward for the data_source
+#         return
+#     elif data_source not in REWARD_DATA_SOURCE_COMPTAB_DICT[reward]:
+#         raise ValueError(
+#             f"Reward '{reward}' is incompatible with data_source '{data_source}'. "
+#             f"Compatible data sources: {REWARD_DATA_SOURCE_COMPTAB_DICT[reward]}"
+#         )
 
 
-def _select_rm_score_fn(data_source) -> Callable[..., dict]:
-    # ?couldn't figure out where data_source was coming from and what flags to set so I just set this manually
-    data_source = "lighteval/MATH_idk"
+def _select_rm_score_fn(
+    data_source: str, config: dict
+) -> Tuple[Callable[..., dict], dict]:
+    """
+    selects the reward function and returns an updated config which, where the key reward_fn corrospond to a dict of all the relavent values of the reward function
+    """
+    # old math
     if data_source == "openai/gsm8k":
-        # return gsm8k.compute_score
-        return math.compute_score
+        raise NotImplementedError(
+            f"Matan : I may have deleted `math.compute_score`, the function which is supposed to process {data_source=}. I'd suggest looking at a previous version of the git history to recover this function (at a certain point it was there and did work!)"
+        )
+    elif data_source == "lighteval/MATH":
+        raise NotImplementedError(
+            f"Matan : I may have deleted `math.compute_score`, the function which is supposed to process {data_source=}. I'd suggest looking at a previous version of the git history to recover this function (at a certain point it was there and did work!)"
+        )
+
+    # new math
     elif data_source == "openai/gsm8k_idk":
         # return gsm8k.compute_score_idk
-        return math.compute_score_idk_rs
-    elif data_source == "lighteval/MATH":
-        return math.compute_score
+        return math.compute_score_idk_rs, config
+
     elif data_source == "lighteval/MATH_idk":
-        return math.compute_score_idk_rs
+        return math.compute_score_idk_rs, config
+
+    elif data_source == "lighteval/MATH_bestguess_and_uncertainty_est":
+        from reward_fn_data.bestguess_and_uncertainty_est import update_config
+
+        return math.bestguess_and_uncertainty_est, update_config(
+            config
+        ) if config is not None else None
+
+    # countdown
     elif "multiply" in data_source or "arithmetic" in data_source:
-        return multiply.compute_score
+        return multiply.compute_score, config
     elif "countdown_idk_and_answer" in data_source:
-        return countdown.compute_score_idk_and_answer
+        return countdown.compute_score_idk_and_answer, config
         # return countdown.compute_score_idk_and_answer_rs
     elif "countdown_idk" in data_source:
-        # return countdown.compute_score_idk
-        return countdown.compute_score_idk_rs
+        return countdown.compute_score_idk_rs, config
     elif "countdown" in data_source:
-        return countdown.compute_score
+        return countdown.compute_score, config
     else:
         raise NotImplementedError(f"{data_source}")
 
@@ -60,12 +96,17 @@ def _select_rm_score_fn(data_source) -> Callable[..., dict]:
 class RewardManager:
     """The reward manager."""
 
-    def __init__(self, tokenizer, num_examine) -> None:
+    def __init__(self, tokenizer, num_examine, reward: Optional[str] = None) -> None:
         self.tokenizer = tokenizer
         self.num_examine = num_examine  # the number of batches of decoded responses to print to the console
+        self.reward = reward
 
-    def __call__(self, data: DataProto):
-        """We will expand this function gradually based on the available datasets"""
+    def __call__(self, data: DataProto, config=None) -> Tuple[dict, dict]:
+        """We will expand this function gradually based on the available datasets.
+        we call with config to update it which will do only once when using a data_source for the first time.
+        Its annoying to do this in __call__ but the codebase wanted to initalize a rewardManager while being flexible on what data sources it can take an dI don't want to break it
+
+        """
 
         # If there is rm score, we directly return rm score. Otherwise, we compute via rm_score_fn
         if "rm_scores" in data.batch.keys():
@@ -111,7 +152,7 @@ class RewardManager:
 
             # select rm_score
             data_source = data_item.non_tensor_batch["data_source"]
-            compute_score_fn = _select_rm_score_fn(data_source)
+            compute_score_fn, config = _select_rm_score_fn(data_source, config)
             # breakpoint()
             compute_score_fn_return: dict = compute_score_fn(
                 solution_str=response_str, ground_truth=ground_truth
@@ -121,14 +162,6 @@ class RewardManager:
             )
             # ? I will need to use the final reward to estimate advantage -- the previous approach was to already parse it as a tensor, I can instead
             for k, v in compute_score_fn_return.items():
-                # if k not in compute_score_fn_returns:
-                #     compute_score_fn_return[k] = []
-                # if k == "reward_float":
-                #     compute_score_fn_returns[k][i, valid_response_length - 1] = (
-                #         compute_score_fn_return[k]
-
-                #     )
-                # el
                 if isinstance(v, list):
                     compute_score_fn_returns[k].extend(v)
                 else:
@@ -149,7 +182,7 @@ class RewardManager:
                 # )
                 already_print_data_sources[data_source] += 1
                 print(concat_prompt_and_response_str)
-        return compute_score_fn_returns
+        return compute_score_fn_returns, config
 
 
 import ray

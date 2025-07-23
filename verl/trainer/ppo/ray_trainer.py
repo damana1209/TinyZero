@@ -841,7 +841,8 @@ class RayPPOTrainer(object):
             # evaluate using reward_function
             # for certain reward function (e.g. sandbox), the generation can overlap with reward
 
-            val_reward_fn_return = self.val_reward_fn(test_batch)
+            # TODO fix this bad pattern
+            (val_reward_fn_return, _) = self.val_reward_fn(test_batch)
 
             for k, v in val_reward_fn_return.items():
                 if isinstance(v, list):
@@ -1086,6 +1087,7 @@ class RayPPOTrainer(object):
         The training loop of PPO.
         The driver process only need to call the compute functions of the worker group through RPC to construct the PPO dataflow.
         The light-weight advantage computation is done on the driver process.
+        ?I may have broken this code's abillity to process multiple datasources
         """
         from verl.utils.tracking import Tracking
         from omegaconf import OmegaConf
@@ -1225,8 +1227,12 @@ class RayPPOTrainer(object):
                             # we first compute reward model score
                             reward_tensor = self.rm_wg.compute_rm_score(batch)
                             batch = batch.union(reward_tensor)
+                        # if self.global_steps ==1:
+                        #     reward_fn_ret, logger.wandb.config = self.reward_fn(batch)
 
-                        reward_fn_ret: dict = self.reward_fn(batch)
+                        # else
+                        # TODO set wandb init here to the params returned by the reward fn
+                        (reward_fn_ret, _) = self.reward_fn(batch)
 
                         # ? unpack the return of the reward fn on the batch (calls RewardManager which calls )
                         if "reward_float" in reward_fn_ret.keys():
