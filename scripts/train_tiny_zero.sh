@@ -53,6 +53,8 @@ trainer.experiment_name="$EXPERIMENT_NAME" \
 trainer.total_epochs=15 \
 "+description=$DESCRIPTION" \
 +trainer.global_seed=$GLOBAL_SEED 2>&1 | tee verl_demo.log
+#TODO with multiple runs in paralell, we do not want to tee... 
+
 
 #?changelog from Daman's last commit before mine
 #* actor_rollout_ref.actor.ppo_micro_batch_size=2*$N_GPUS_PER_NODE \ becasue `self.config.ppo_micro_batch_size //= (torch.distributed.get_world_size() // self.ulysses_sequence_parallel_size)` was forcing ppo_micro_batch_size to 0

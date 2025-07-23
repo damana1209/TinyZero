@@ -223,8 +223,20 @@ def add_metric_with_description(
     descriptions_dict[key] = description
 
 
-def update_metrics_with_status_codes(metrics:dict, descriptions:dict, status_codes:torch.Tensor[MathStatus])-> Tuple[dict, dict] :
-    hjbsadhjsabdhjsab not implemented
+def update_metrics_with_status_codes(
+    metrics: dict, descriptions: dict, status_codes: torch.Tensor[MathStatus]
+):
+    # could potentially get descriptions from the file which stores the current reward function, but that is overkill when there are so few rewards and status codes
+    for status in MathStatus:
+        count = status_codes.count_nonzero(status_codes == status)
+        if count > 0:
+            add_metric_with_description(
+                metrics,
+                "training/" + status.name.lower(),
+                descriptions,
+                count / status_codes.shape(0),
+                "",
+            )
 
 
 def compute_data_metrics(batch:DataProto, use_critic=True):
@@ -306,13 +318,13 @@ def compute_data_metrics(batch:DataProto, use_critic=True):
     descriptions = {}
 
     #? rewards which depend on the reward function here
-    if some condition:
-        i think rewards for idk_list come as a list for each instead of value and i need to average them
+    # TODO enum of all data sources
+    if batch.non_tensor_batch["data_source"] == "lighteval/MATH_idk":
         add_metric_with_description(
             metrics,
             descriptions,
             "train/avg_idk_reward",
-            rewards_for_idk_list,
+            batch.batch["rewards_for_idk_list"].mean(dim=-1, keepdim=False),
             "Average reward given for 'I don't know' responses",
         )
 
@@ -1136,7 +1148,7 @@ class RayPPOTrainer(object):
 
                         # for all the returns which do not require special handling
                         for k, v in reward_fn_ret.items():
-                            batch.non_tensor_batch[k] = v
+                            batch.batch[k] = v
 
                         # ? reward_ret handling ends
 
