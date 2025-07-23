@@ -51,8 +51,10 @@ trainer.test_freq=20 \
 trainer.project_name=TinyZero \
 trainer.experiment_name="$EXPERIMENT_NAME" \
 trainer.total_epochs=15 \
-+description="${TRAINING_RUN_DESCRIPTION}" \
 +trainer.global_seed=$GLOBAL_SEED 2>&1 | tee verl_demo.log
+
+#+description="${TRAINING_RUN_DESCRIPTION}" \ fails bc hydra.errors.OverrideParseException: mismatched input ' (' expecting <EOF> when having paranths in expr
+
 
 #?changelog from Daman's last commit before mine
 #* actor_rollout_ref.actor.ppo_micro_batch_size=2*$N_GPUS_PER_NODE \ becasue `self.config.ppo_micro_batch_size //= (torch.distributed.get_world_size() // self.ulysses_sequence_parallel_size)` was forcing ppo_micro_batch_size to 0
