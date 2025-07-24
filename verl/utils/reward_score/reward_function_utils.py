@@ -1,4 +1,4 @@
-def to_unit_interval(s: str) -> float | None:
+def to_unit_interval(s: str | None) -> float | None:
     """
     Attempts to parse a string as a float in the unit interval [0, 1].
     Returns the float if successful and in [0, 1], else returns None.
@@ -15,7 +15,52 @@ def to_unit_interval(s: str) -> float | None:
         return None
 
 
-def extract_solution(solution_str: str, DELIMITER = r"\boxed{") -> None | str:
+def extract_solution_tags(solution_str: str, tag_name: str) -> tuple[str | None, int]:
+    """
+    Extract text between <tag_name> and </tag_name> tags.
+
+    Args:
+        solution_str: The string to search in
+        tag_name: The name of the tag (without angle brackets)
+
+    Returns:
+        tuple: (extracted_text, closing_tag_end_index) if exactly one pair exists,
+               (None, 0) otherwise
+    """
+    opening_tag = f"<{tag_name}>"
+    closing_tag = f"</{tag_name}>"
+
+    # Count occurrences of opening and closing tags
+    opening_count = solution_str.count(opening_tag)
+    closing_count = solution_str.count(closing_tag)
+
+    # Check if there's exactly one pair
+    if opening_count != 1 or closing_count != 1:
+        return None, 0
+
+    opening_pos = solution_str.find(opening_tag)
+    closing_pos = solution_str.find(closing_tag)
+
+    # Make sure opening comes before closing
+    if opening_pos >= closing_pos:
+        return None, 0
+
+    # Extract text between tags
+    start_content = opening_pos + len(opening_tag)
+    end_content = closing_pos
+    content = solution_str[start_content:end_content]
+
+    # Find index of > in </tag_name> (position of > character in closing tag)
+    closing_tag_gt_index = (
+        closing_pos + len(closing_tag) - 1
+    )  # ?i think -1 will be useful if its the last character of the string and we don't care to start from >
+
+    return content, closing_tag_gt_index
+
+
+def extract_solution_square_brackets(
+    solution_str: str, DELIMITER=r"\boxed{"
+) -> None | str:
     """
     !delimeter should be passed in as an r-string, e.g. `DELIMITER = r"\boxed{"` (expecting curly braces)
 
@@ -66,7 +111,7 @@ def extract_solution(solution_str: str, DELIMITER = r"\boxed{") -> None | str:
         return None
 
 
-def is_equiv(str1: str, str2: str, verbose=False):
+def is_equiv(str1: str | None, str2: str | None, verbose=False):
     if str1 is None and str2 is None:
         print("WARNING: Both None")
         return True

@@ -81,6 +81,10 @@ def _select_rm_score_fn(
 
         return math.bestguess_and_uncertainty_est
 
+    elif data_source == "lighteval/MATH_RLCR":
+        # TODO add the param log here
+        return math.rlcr
+
     # countdown
     elif "multiply" in data_source or "arithmetic" in data_source:
         return multiply.compute_score

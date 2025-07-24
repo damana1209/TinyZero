@@ -335,6 +335,22 @@ def compute_data_metrics(batch:DataProto, use_critic=True):
             "Average reward given for 'I don't know' responses (relavent since we may be using reward shaping)",
         )
 
+    elif batch.non_tensor_batch["data_source"][0] == "lighteval/MATH_RLCR":
+        add_metric_with_description(
+            metrics,
+            descriptions,
+            "train/confidence_mean",
+            batch.batch["confidence"].nanmean(dim=-1, keepdim=False),
+            "Average reward given for 'I don't know' responses (relavent since we may be using reward shaping)",
+        )
+        add_metric_with_description(
+            metrics,
+            descriptions,
+            "train/brier_score_mean",
+            batch.batch["brier_score"].nanmean(dim=-1, keepdim=False),
+            "Average reward given for 'I don't know' responses (relavent since we may be using reward shaping)",
+        )
+
     # status codes
     update_metrics_with_status_codes(
         metrics, descriptions, batch.batch["reward_status_code"]

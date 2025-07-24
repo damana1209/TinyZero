@@ -12,13 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # Adapted from https://github.com/EleutherAI/lm-evaluation-harness/blob/main/lm_eval/tasks/hendrycks_math/utils.py
-import random
-from typing import Tuple, Final
 from enum import IntEnum
 
-from numpy import extract
-from .reward_function_utils import is_equiv, extract_solution, to_unit_interval
-
+from .reward_function_utils import (
+    is_equiv,
+    extract_solution_square_brackets,
+    to_unit_interval,
+    extract_solution_tags,
+)
+import torch
 
 class MathStatus(IntEnum):
     BAD_FORMAT = 0
@@ -27,9 +29,54 @@ class MathStatus(IntEnum):
     IDK = 3
 
 # TODO create a dict class which standardizes the return type
+# TODO how do I enforece that each conditional returns the all the same keys? The current pattern does not do that.
+
+def rlcr(solution_str: str, ground_truth: str) -> dict:
+    """
+    replicating the methods from https://www.arxiv.org/pdf/2507.16806
+    """
+    pass
+    answer_think, i_answer_think = extract_solution_tags(solution_str, r"think")
+    solution_str = solution_str[i_answer_think:]
+    answer, i_answer = extract_solution_tags(solution_str, r"answer")
+    solution_str = solution_str[i_answer:]
+    confidence_think, i_confidence_think = extract_solution_tags(
+        solution_str, r"analysis"
+    )
+    solution_str = solution_str[i_confidence_think:]
+    confidence, _ = extract_solution_tags(solution_str, r"confidence")
+    if None in [answer_think, answer, confidence_think, confidence]:
+        return {
+            "reward_float": 0,
+            "reward_status_code": MathStatus.BAD_FORMAT,
+            "confidence": torch.nan,
+            "brier_score": torch.nan,
+        }
+    elif None in [to_unit_interval(confidence)]:
+        return {
+            "reward_float": 0,
+            "reward_status_code": MathStatus.BAD_FORMAT,
+            "confidence": torch.nan,
+            "brier_score": torch.nan,
+        }
+    else:
+        from reward_fn_data.RLCR import formatting_reward
+
+        is_correct = is_equiv(answer, ground_truth)
+        confidence_float = to_unit_interval(confidence)
+        return {
+            "reward_float": formatting_reward
+            + is_correct
+            - (confidence_float - is_correct) ** 2,
+            "reward_status_code": (
+                MathStatus.RIGHT if is_correct else MathStatus.WRONG_ANS_GOOD_FORMAT
+            ),
+            "confidence": confidence_float,
+            "brier_score": (confidence_float - is_correct) ** 2,
+        }
 
 
-def bestguess_and_uncertainty_est(solution_str: str, ground_truth: str):
+def bestguess_and_uncertainty_est(solution_str: str, ground_truth: str) -> dict:
     """
     ! remember to change the math_dataset with any formatting changes (need to tell the model)
     The assistant is encourged to think step by step and note its uncertainty. It is prompted to respond with both is 'best guess' and an 'uncertainty score' and is graded on being correct and calibrated (i.e. uncertainty inversly correlated with correctness). (see `math_dataset` for the complete prompt)
@@ -47,10 +94,10 @@ def bestguess_and_uncertainty_est(solution_str: str, ground_truth: str):
         correctness_reward_multiplier,
     )
 
-    best_guess = extract_solution(solution_str=solution_str)
-    uncertainty: str = extract_solution(
+    best_guess = extract_solution_square_brackets(solution_str=solution_str)
+    uncertainty: str = extract_solution_square_brackets(
         solution_str=solution_str,
-        DELIMITER=r"After careful consideration of the question, my thinking, and my final answer, I estimate the probability that my answer is correct is \\uncertainty{",
+        DELIMITER=r"\\uncertainty{",
     )
     uncertainty_float = to_unit_interval(uncertainty)
     # bad format
