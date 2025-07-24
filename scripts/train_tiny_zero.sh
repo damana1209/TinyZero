@@ -10,6 +10,7 @@ export RAY_DASHBOARD_PORT=8265
 #? do not set the mini or the micro batch size to anything smaller than the total number of GPUs since 
 #     config.actor_rollout_ref.actor.ppo_micro_batch_size //= dp_size <-- get a div by 0 err
 
+
 python3 -m verl.trainer.main_ppo \
 data.train_files=$DATA_DIR/train.parquet \
 data.val_files=$DATA_DIR/test.parquet \
@@ -48,11 +49,13 @@ trainer.n_gpus_per_node=$N_GPUS_PER_NODE \
 trainer.nnodes=2 \
 trainer.save_freq=1000 \
 trainer.test_freq=20 \
-trainer.project_name=TinyZero \
+trainer.project_name="TinyZero" \
 trainer.experiment_name="$EXPERIMENT_NAME" \
 trainer.total_epochs=15 \
-+description="${TRAINING_RUN_DESCRIPTION}" \
++description=\${oc.env:TRAINING_RUN_DESCRIPTION} \
 +trainer.global_seed=$GLOBAL_SEED 2>&1 | tee verl_demo.log
+
+
 
 #?changelog from Daman's last commit before mine
 #* actor_rollout_ref.actor.ppo_micro_batch_size=2*$N_GPUS_PER_NODE \ becasue `self.config.ppo_micro_batch_size //= (torch.distributed.get_world_size() // self.ulysses_sequence_parallel_size)` was forcing ppo_micro_batch_size to 0
