@@ -774,7 +774,7 @@ class RayPPOTrainer(object):
             # for certain reward function (e.g. sandbox), the generation can overlap with reward
 
             # TODO fix this bad pattern
-            (val_reward_fn_return, _) = self.val_reward_fn(test_batch)
+            val_reward_fn_return = self.val_reward_fn(test_batch)
 
             for k, v in val_reward_fn_return.items():
                 if isinstance(v, list):
@@ -843,11 +843,9 @@ class RayPPOTrainer(object):
                 assert False, "expecting `reward_float` in val_reward_fn"
 
             if "cur_reward_for_idk" in val_reward_fn_returns.keys():
-                metric_dict[f"val/avg_reward_for_dk"] = sum(
+                metric_dict[f"val/avg_reward_for_idk"] = sum(
                     val_reward_fn_returns["cur_reward_for_idk"]
                 ) / len(val_reward_fn_returns["cur_reward_for_idk"])
-            else:
-                assert False, "expecting `avg_reward_for_idk` in `val_reward_fn`"
 
         return metric_dict
 
