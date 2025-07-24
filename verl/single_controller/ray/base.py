@@ -73,12 +73,18 @@ class RayResourcePool(ResourcePool):
         pg_name_prefix = name if name else \
             f"{self.name_prefix}verl_group_{'_'.join([str(count) for count in self._store])}:"
         # print(f"pg_name_prefix = {pg_name_prefix}")
-        pg_scheme = [[{
-            "CPU": self.max_collocate_count,
-            "GPU": 1
-        } if self.use_gpu else {
-            "CPU": self.max_collocate_count
-        } for _ in range(process_count)] for process_count in self._store]
+        pg_scheme = [
+            [
+                {
+                    "CPU": self.max_collocate_count,  # ? not sure why max_colocate_count is set to 1
+                    "GPU": 1,
+                }
+                if self.use_gpu
+                else {"CPU": self.max_collocate_count}
+                for _ in range(process_count)
+            ]
+            for process_count in self._store
+        ]
 
         lifetime = 'detached' if self.detached else None
 

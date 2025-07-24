@@ -14,13 +14,13 @@
 # Adapted from https://github.com/EleutherAI/lm-evaluation-harness/blob/main/lm_eval/tasks/hendrycks_math/utils.py
 import random
 from typing import Tuple, Final
-from enum import Enum
+from enum import IntEnum
 
 from numpy import extract
 from .reward_function_utils import is_equiv, extract_solution, to_unit_interval
 
 
-class MathStatus(Enum):
+class MathStatus(IntEnum):
     BAD_FORMAT = 0
     WRONG_ANS_GOOD_FORMAT = 1
     RIGHT = 2
@@ -172,10 +172,4 @@ def compute_score_idk_rs(
 
     except Exception as e:
         print(e)
-    to_print = random.randint(1, 64) == 1
-    if to_print:
-        print(
-            f"OCCUSIONAL QUALITY PRINT: \n\n {solution_str=} \n {extracted_solution=} \n {ret=} \n {ground_truth=}"
-        )
-
     return ret

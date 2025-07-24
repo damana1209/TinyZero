@@ -19,12 +19,12 @@ echo "job is starting on `hostname`"
 # DATASET="countdown_idk"
 # DATASET="lighteval/MATH"
 # Parse optional --desc flag from command line arguments
-DESCRIPTION=""
+export TRAINING_RUN_DESCRIPTION="training run description was not provided"
 while [[ $# -gt 0 ]]; do
   key="$1"
   case $key in
     --desc)
-      export DESCRIPTION="$2"
+      export TRAINING_RUN_DESCRIPTION="$2"
       shift # past argument
       shift # past value
       ;;
@@ -34,11 +34,11 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-export DATASET="lighteval/MATH_idk"
+export DATASET="lighteval/MATH_bestguess_and_uncertainty"
 # DATASET="gsm8k_idk"
 # DATASET="gsm8k"
 # DATASET="countdown_idk_and_answer"
-export CUDA_VISIBLE_DEVICES=0,1,2,3,4
+# export CUDA_VISIBLE_DEVICES=0,1,2,3,4
 export N_NODE=1
 export N_GPUS_PER_NODE=4
 #export VLLM_HOST_IP=172.28.81.248
@@ -47,9 +47,8 @@ export BASE_MODEL="/work/nvme/betg/mshtepel/models/Qwen2.5-1.5B-Instruct"
 # export BASE_MODEL="/work/nvme/betg/darora1/verifiers/Llama-3.2-1B"
 # export BASE_MODEL="/work/nvme/betg/darora1/verifiers/OctoThinker-1B-Short-Base"
 # export DATA_DIR="/work/nvme/betg/darora1/TinyZero/countdown_idk/"
-export DATA_DIR="/u/mshtepel/data/math_idk"
-export ROLLOUT_TP_SIZE=4 
-#? when running 7B on 4 GPUs, https://github.com/volcengine/verl/blob/72cae971d00e0dba60cbb191a9f13f5de3b5ae36/examples/ppo_trainer/run_deepseek7b_llm_pfppo.sh#L25 sets to 4
+export DATA_DIR="/u/mshtepel/data/math/bestguess_and_uncertainty_est"
+export TENSOR_MODEL_PARLLEL_SIZE=1
 export EXPERIMENT_NAME=$DATASET"_$(basename $BASE_MODEL)_entropy_coeff_1e-3_idk_0.5_lr_5e-7_2"
 # export EXPERIMENT_NAME=$DATASET"-qwen2.5-1.5b_4choice"
 export VLLM_ATTENTION_BACKEND=XFORMERS

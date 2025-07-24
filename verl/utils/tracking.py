@@ -150,8 +150,8 @@ class Tracking(object):
             self.previously_addded_reward_fn_configs.append(reward_fn_desc.name)
             with self.logger["wandb"].init(
                 project=self.project_name, name=self.experiment_name, config=self.config
-            ) as run: 
-                if 'reward_fns' not in run.config.keys()
+            ) as run:
+                if "reward_fns" not in run.config.keys():
                     run.config['reward_fns'] = []
                 run.config['reward_fns'].append(reward_fn_desc)
                 print(f"DEBUG: added the configuration of reward fn {reward_fn_desc.name} to wandb config!")

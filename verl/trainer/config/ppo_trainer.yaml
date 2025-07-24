@@ -1,3 +1,4 @@
+#? In the recent version of `verl` (I think this one is old for the TinyZero replication) *micro_batch_size is depracted in favor of *micro_batch_size_per_gpu  
 data:
   tokenizer: null
   train_files: ~/data/rlhf/gsm8k/train.parquet

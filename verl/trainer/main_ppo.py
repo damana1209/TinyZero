@@ -21,7 +21,7 @@ import torch
 from verl.utils.reward_score import gsm8k, math, multiply, countdown
 from verl.trainer.ppo.ray_trainer import RayPPOTrainer
 import ray
-
+import random  # ?to print a random element as it goes through the reward score
 
 # ?matan added
 torch.set_default_dtype(torch.bfloat16)
@@ -119,6 +119,7 @@ class RewardManager:
         # compute_score_fn_returns["reward_float"] = torch.zeros_like(
         #    data.batch["responses"], dtype=torch.float32
         # )
+        idx_to_print = random.randint(0, len(data))
 
         for i in range(len(data)):
             data_item = data[i]  # DataProtoItem
@@ -184,6 +185,13 @@ class RewardManager:
                 # )
                 already_print_data_sources[data_source] += 1
                 print(concat_prompt_and_response_str)
+
+            # ? print a random data item
+            if i == idx_to_print:
+                print(
+                    f"\nRANDOM QUALITY CHECK PRINT: {concat_prompt_and_response_str=}\n {compute_score_fn_return=}\n "
+                )
+
         return compute_score_fn_returns
 
 

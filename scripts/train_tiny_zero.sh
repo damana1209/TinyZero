@@ -10,6 +10,9 @@ export RAY_DASHBOARD_PORT=8265
 #? do not set the mini or the micro batch size to anything smaller than the total number of GPUs since 
 #     config.actor_rollout_ref.actor.ppo_micro_batch_size //= dp_size <-- get a div by 0 err
 
+#? In the recent version of `verl` (I think this one is old for the TinyZero replication) *micro_batch_size is depracted in favor of *micro_batch_size_per_gpu. I think that in the code micro_batch_size_per_gpu = micro_batch_size // num_gpus so we are effectively setting micro_batch_size_per_gpu here (to one assuming we run with 4 or more GPUs which are the only configs we have tried )
+
+
 python3 -m verl.trainer.main_ppo \
 data.train_files=$DATA_DIR/train.parquet \
 data.val_files=$DATA_DIR/test.parquet \
@@ -31,9 +34,13 @@ actor_rollout_ref.actor.ppo_epochs=1 \
 actor_rollout_ref.actor.shuffle=True \
 actor_rollout_ref.actor.grad_clip=1.0 \
 actor_rollout_ref.rollout.log_prob_micro_batch_size=$(($N_GPUS_PER_NODE * $N_NODE > 4 ? $N_GPUS_PER_NODE * $N_NODE : 4))  \
-actor_rollout_ref.rollout.tensor_model_parallel_size=$ROLLOUT_TP_SIZE \
-actor_rollout_ref.rollout.gpu_memory_utilization=0.4 \
+actor_rollout_ref.rollout.tensor_model_parallel_size=$TENSOR_MODEL_PARLLEL_SIZE \
+actor_rollout_ref.rollout.gpu_memory_utilization=0.3 \
 actor_rollout_ref.ref.log_prob_micro_batch_size=$(($N_GPUS_PER_NODE * $N_NODE > 4 ? $N_GPUS_PER_NODE * $N_NODE : 4)) \
+++actor_rollout_ref.model.enable_activation_offload=True \
+++actor_rollout_ref.actor.fsdp_config.param_offload=True \
+++actor_rollout_ref.actor.fsdp_config.gradient_offload=True \
+++actor_rollout_ref.actor.fsdp_config.optimizer_offload=True \
 critic.optim.lr=1e-5 \
 critic.model.path="$BASE_MODEL" \
 critic.ppo_mini_batch_size=64 \
@@ -45,13 +52,13 @@ trainer.default_local_dir=/work/nvme/betg/darora1/verifiers/TinyZero \
 +trainer.val_before_train=False \
 trainer.default_hdfs_dir=null \
 trainer.n_gpus_per_node=$N_GPUS_PER_NODE \
-trainer.nnodes=2 \
-trainer.save_freq=1000 \
+trainer.nnodes=${N_NODE} \
+trainer.save_freq=70 \
 trainer.test_freq=20 \
 trainer.project_name=TinyZero \
 trainer.experiment_name="$EXPERIMENT_NAME" \
 trainer.total_epochs=15 \
-"+description=$DESCRIPTION" \
++description=\${oc.env:TRAINING_RUN_DESCRIPTION} \
 +trainer.global_seed=$GLOBAL_SEED 2>&1 | tee verl_demo.log
 #TODO with multiple runs in paralell, we do not want to tee... 
 
@@ -68,3 +75,4 @@ trainer.total_epochs=15 \
 #* decreased train_batch_size, val_batch_size, microbatchsize, logporbmicrobatchsize,log_prob_micro_batch_size by a factor of 2 
 #* be at least as conservative as https://github.com/volcengine/verl/blob/72cae971d00e0dba60cbb191a9f13f5de3b5ae36/examples/ppo_trainer/run_deepseek7b_llm_pfppo.sh
 #?nnodes for multinode training
+#* added all the offloads to be more careful -- we're getting really good utelization on the 7B model so maybe its not a problem for speed

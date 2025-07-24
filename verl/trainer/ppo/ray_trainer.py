@@ -24,7 +24,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from enum import Enum
 from pprint import pprint
-from typing import Type, Dict, Tuple
+from typing import Type, Dict, Tuple, Iterable
 
 from verl.utils.reward_score.countdown import CountdownStatus
 import numpy as np
@@ -224,17 +224,19 @@ def add_metric_with_description(
 
 
 def update_metrics_with_status_codes(
-    metrics: dict, descriptions: dict, status_codes: torch.Tensor[MathStatus]
+    metrics: dict, descriptions: dict, status_codes: Iterable[MathStatus]
 ):
+    if status_codes.shape[0] == 0:
+        raise ValueError(f"{status_codes.shape[0]=} is really strange...")
     # could potentially get descriptions from the file which stores the current reward function, but that is overkill when there are so few rewards and status codes
     for status in MathStatus:
-        count = status_codes.count_nonzero(status_codes == status)
+        count = (status_codes == status).count_nonzero().item()
         if count > 0:
             add_metric_with_description(
                 metrics,
-                "training/" + status.name.lower(),
                 descriptions,
-                count / status_codes.shape(0),
+                "training/" + status.name.lower(),
+                count / status_codes.shape[0],
                 "",
             )
 
@@ -319,18 +321,26 @@ def compute_data_metrics(batch:DataProto, use_critic=True):
 
     #? rewards which depend on the reward function here
     # TODO enum of all data sources
-    if batch.non_tensor_batch["data_source"] == "lighteval/MATH_idk":
+    if len(np.unique(batch.non_tensor_batch["data_source"])) > 1:
+        raise NotImplementedError(
+            f"expecting at most one datasource per batch but got that {np.unique(batch.non_tensor_batch['data_source'])=}"
+        )
+
+    elif batch.non_tensor_batch["data_source"][0] == "lighteval/MATH_idk":
         add_metric_with_description(
             metrics,
             descriptions,
             "train/avg_idk_reward",
             batch.batch["rewards_for_idk_list"].mean(dim=-1, keepdim=False),
-            "Average reward given for 'I don't know' responses",
+            "Average reward given for 'I don't know' responses (relavent since we may be using reward shaping)",
         )
 
-    #status codes 
-    metrics, descriptions = update_metrics_with_status_codes(metrics, descriptions, batch.non_tensor_batch["reward_status_code"]) 
+    # status codes
+    update_metrics_with_status_codes(
+        metrics, descriptions, batch.batch["reward_status_code"]
+    )
 
+    # TODO add automatic logging of other metrics in batch which are returned by reward_fn
     # Score metrics
     add_metric_with_description(
         metrics,

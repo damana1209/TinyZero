@@ -121,6 +121,8 @@ class ActorRolloutRefWorker(Worker):
                                                            self.ulysses_sequence_parallel_size)
             self.config.ref.log_prob_micro_batch_size *= self.config.rollout.n
 
+        print(f"DEBUG: ActorlRolloutRefWoker after initialization {self=}")
+
     def _build_model_optimizer(self,
                                model_path,
                                fsdp_config,
